@@ -7,7 +7,7 @@ from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 
 # --- Configuration ---
-YANDEX_TOKEN = "y0__xCF7vSyBhj0hTwg2oaewBUWNr9rdgvFpxw2k559OGS_U4o9VA"
+YANDEX_TOKEN = "y0__xCF7vSyBhj0hTwg2oaewBUWNr9rdgvFpxw2k559OGkSU4o9VA"
 FONTS_DIR = 'fonts'
 TEMPLATES_DIR = 'templates'
 
@@ -107,27 +107,91 @@ def create_yandex_folder(folder_name):
     path = f'{base_path}/{folder_name}'
     
     # Ensure base folder exists
-    try:
-        requests.put(f'https://cloud-api.yandex.net/v1/disk/resources?path={base_path}', headers=headers)
-        requests.put(f'https://cloud-api.yandex.net/v1/disk/resources?path={path}', headers=headers)
-        requests.put(f'https://cloud-api.yandex.net/v1/disk/resources/publish?path={path}', headers=headers)
-        meta = requests.get(f'https://cloud-api.yandex.net/v1/disk/resources?path={path}', headers=headers).json()
-        return meta.get('public_url', 'Ссылка не создана')
-    except Exception as e:
-        return f"Ошибка: {e}"
+    requests.put(f'https://cloud-api.yandex.net/v1/disk/resources?path={base_path}', headers=headers)
+    
+    # Create target folder
+    requests.put(f'https://cloud-api.yandex.net/v1/disk/resources?path={path}', headers=headers)
+    
+    # Publish and get link
+    requests.put(f'https://cloud-api.yandex.net/v1/disk/resources/publish?path={path}', headers=headers)
+    meta = requests.get(f'https://cloud-api.yandex.net/v1/disk/resources?path={path}', headers=headers).json()
+    
+    return meta.get('public_url', 'Ссылка не создана')
 
 def upload_to_yandex(file_obj, folder_name, filename):
     headers = {'Authorization': f'OAuth {YANDEX_TOKEN}'}
     path = f'/Clients/{folder_name}/{filename}'
+    
+    # Check if folder exists, if not - create it (robustness)
+    # We do a quick check by trying to get meta info about folder
+    folder_path = f'/Clients/{folder_name}'
+    check = requests.get(f'https://cloud-api.yandex.net/v1/disk/resources?path={folder_path}', headers=headers)
+    if check.status_code != 200:
+        # Folder missing, try to create it
+        create_yandex_folder(folder_name)
+        
+    # Get upload URL
     res = requests.get(f'https://cloud-api.yandex.net/v1/disk/resources/upload?path={path}&overwrite=true', headers=headers).json()
     upload_url = res.get('href')
+    
     if upload_url:
-        requests.put(upload_url, files={'file': file_obj})
-        return True
-    return False
+        try:
+            requests.put(upload_url, files={'file': file_obj})
+            return True
+        except Exception as e:
+            st.error(f"Ошибка при отправке файла: {e}")
+            return False
+    else:
+        # If we can't get upload URL, maybe path is wrong or token invalid
+        st.error(f"Не удалось получить ссылку для загрузки. Ответ Яндекса: {res}")
+        return False
+
+# --- CSS Styles ---
+# --- CSS Styles ---
+hide_uploader_text = """
+<style>
+/* Hide the "Drag and drop..." text */
+[data-testid='stFileUploader'] section > div:first-child > span {
+    display: none;
+}
+/* Hide the "Limit 200MB..." text */
+[data-testid='stFileUploader'] section > div:first-child > small {
+    display: none;
+}
+/* Style the Browse button */
+/* We target the button INSIDE the section (dropzone) to avoid targeting delete buttons in the file list */
+[data-testid='stFileUploader'] section button {
+    border: 1px solid #4CAF50;
+    color: white;
+    background-color: #4CAF50; 
+    border-radius: 5px;
+    visibility: hidden; /* Hide original text */
+    position: relative;
+    width: 150px;
+}
+/* Hack to change button text */
+[data-testid='stFileUploader'] section button::after {
+    content: "Выбрать файлы";
+    visibility: visible;
+    display: block;
+    position: absolute;
+    background-color: #4CAF50;
+    padding: 5px 10px;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 5px;
+}
+</style>
+"""
 
 # --- UI Layout ---
 st.set_page_config(page_title="Mortgage CRM", layout="wide", page_icon="🏦")
+st.markdown(hide_uploader_text, unsafe_allow_html=True) # ПРИМЕНЯЕМ СТИЛИ
 
 st.sidebar.title("СОКОЛ")
 page = st.sidebar.radio("Меню", ["Рабочий стол", "Новый клиент", "Карточка Клиента", "База Банков"])
@@ -186,14 +250,41 @@ if page == "Рабочий стол":
 
 # --- Page: Новый клиент ---
 elif page == "Новый клиент":
-    st.title("👤 Новый Клиент")
-    
+    # Layout: Header + File Upload
+    nc_c1, nc_c2 = st.columns([3, 1])
+    with nc_c1:
+        st.title("👤 Новый Клиент")
+    with nc_c2:
+        # Mini uploader - MULTIPLE FILES
+        new_client_uploads = st.file_uploader("Загрузить документы", label_visibility="collapsed", accept_multiple_files=True)
+        
     # Header Info - Status & Loan Type
     st.subheader("Основная информация")
     c1, c2, c3 = st.columns(3)
     fio = c1.text_input("ФИО")
-    status = c2.selectbox("Статус", ["Новый", "В работе", "Одобрен", "Сделка", "Отказ"])
-    loan_type = c3.selectbox("Тип заявки", ["Ипотека", "Залог"])
+    
+    # Handle upload immediately if FIO exists
+    if new_client_uploads:
+        if fio:
+            folder_name = f"{fio}_{datetime.now().strftime('%Y-%m-%d')}"
+            with st.spinner(f"⏳ Загрузка {len(new_client_uploads)} файлов..."):
+                # Ensure folder exists once
+                create_yandex_folder(folder_name) 
+                
+                success_count = 0
+                for uploaded_file in new_client_uploads:
+                    if upload_to_yandex(uploaded_file, folder_name, uploaded_file.name):
+                        success_count += 1
+                
+                if success_count == len(new_client_uploads):
+                    st.toast(f"✅ Все файлы ({success_count}) загружены!", icon=None)
+                else:
+                    st.warning(f"⚠️ Загружено {success_count} из {len(new_client_uploads)} файлов.")
+        else:
+            st.warning("⚠️ Введите ФИО, чтобы загрузить файлы.")
+
+    status = c2.selectbox("Статус", ["Новый", "В работе", "Одобрен", "Сделка", "Отказ"], index=None, placeholder="Выберите статус...")
+    loan_type = c3.selectbox("Тип заявки", ["Ипотека", "Залог"], index=None, placeholder="Выберите тип...")
     
     c4, c5, c6 = st.columns(3)
     with c4:
@@ -228,7 +319,7 @@ elif page == "Новый клиент":
     p_c1, p_c2, p_c3 = st.columns([1, 1, 1])
     
     with p_c1:
-        is_pledged_val = st.radio("Объект сейчас в залоге?", ["Да", "Нет"], horizontal=True, index=1)
+        is_pledged_val = st.radio("Объект сейчас в залоге?", ["Да", "Нет"], horizontal=True, index=None)
     is_pledged = is_pledged_val == "Да"
     
     pledge_bank = ""
@@ -250,8 +341,8 @@ elif page == "Новый клиент":
         
         # Row 1: Gender, DOB, Birth Place
         pd_r1_1, pd_r1_2, pd_r1_3 = st.columns(3)
-        gender = pd_r1_1.radio("Пол", ["Мужской", "Женский"], horizontal=True)
-        dob = pd_r1_2.date_input("Дата рождения", min_value=min_date, max_value=max_date, value=datetime(1980,1,1).date())
+        gender = pd_r1_1.radio("Пол", ["Мужской", "Женский"], horizontal=True, index=None)
+        dob = pd_r1_2.date_input("Дата рождения", min_value=min_date, max_value=max_date, value=None)
         birth_place = pd_r1_3.text_input("Место рождения")
         
         # Row 2: Phone, Email
@@ -261,7 +352,7 @@ elif page == "Новый клиент":
         with pd_r2_2:
             em_c1, em_c2 = st.columns([2, 1])
             email_user = em_c1.text_input("Email")
-            email_domain = em_c2.selectbox("Домен", ["@gmail.com", "@ya.ru", "@mail.ru", "Вручную"], label_visibility="hidden")
+            email_domain = em_c2.selectbox("Домен", ["@gmail.com", "@ya.ru", "@mail.ru", "Вручную"], label_visibility="hidden", index=None, placeholder="@...")
             
             if email_domain and email_domain != "Вручную":
                 email = email_user + email_domain
@@ -270,9 +361,9 @@ elif page == "Новый клиент":
         
         # Row 3: Marital Status, Children, Marriage Contract
         pd_r3_1, pd_r3_2, pd_r3_3 = st.columns(3)
-        family = pd_r3_1.selectbox("Семейное положение", ["Холост/Не замужем", "Женат/Замужем", "Разведен(а)", "Вдовец/Вдова"])
+        family = pd_r3_1.selectbox("Семейное положение", ["Холост/Не замужем", "Женат/Замужем", "Разведен(а)", "Вдовец/Вдова"], index=None, placeholder="Выберите...")
         children_count = pd_r3_2.number_input("Кол-во несовершеннолетних детей", 0, 10, 0)
-        marriage_contract = pd_r3_3.radio("Наличие брачного договора / нотариального согласия", ["Брачный контракт", "Нотариальное согласие", "Нет"], horizontal=True)
+        marriage_contract = pd_r3_3.radio("Наличие брачного договора / нотариального согласия", ["Брачный контракт", "Нотариальное согласие", "Нет"], horizontal=True, index=None)
         
         children_dates = []
         if children_count > 0:
@@ -280,8 +371,8 @@ elif page == "Новый клиент":
             cols = st.columns(min(children_count, 4))
             for i in range(children_count):
                 with cols[i % 4]:
-                    d = st.date_input(f"Ребенок {i+1}", min_value=datetime(2000,1,1).date(), max_value=max_date, key=f"child_{i}")
-                    children_dates.append(str(d))
+                    d = st.date_input(f"Ребенок {i+1}", min_value=datetime(2000,1,1).date(), max_value=max_date, key=f"child_{i}", value=None)
+                    children_dates.append(str(d) if d else "")
         
         st.divider()
         st.subheader("Паспорт")
@@ -289,7 +380,7 @@ elif page == "Новый клиент":
         pass_ser = p1.text_input("Серия")
         pass_num = p2.text_input("Номер")
         pass_code = p3.text_input("Код подразделения")
-        pass_date = p4.date_input("Дата выдачи", min_value=datetime(1990, 1, 1).date(), max_value=max_date, value=datetime(2010,1,1).date())
+        pass_date = p4.date_input("Дата выдачи", min_value=datetime(1990, 1, 1).date(), max_value=max_date, value=None)
         
         pass_issued = st.text_input("Кем выдан")
         
@@ -321,11 +412,11 @@ elif page == "Новый клиент":
         st.subheader("Работа")
         
         jr1_1, jr1_2 = st.columns(2)
-        job_type = jr1_1.selectbox("Тип занятости", ["Найм", "ИП", "Собственник бизнеса", "Самозанятый", "Пенсионер"])
-        job_official_val = jr1_2.radio("Официально трудоустроен", ["Да", "Нет"], horizontal=True, index=0)
+        job_type = jr1_1.selectbox("Тип занятости", ["Найм", "ИП", "Собственник бизнеса", "Самозанятый", "Пенсионер"], index=None, placeholder="Выберите...")
+        job_official_val = jr1_2.radio("Официально трудоустроен", ["Да", "Нет"], horizontal=True, index=None)
         job_official = job_official_val == "Да"
         
-        if job_type != "Не работаю":
+        if job_type and job_type != "Не работаю":
             # Compact fields: 4 cols per row
             jr1_1, jr1_2, jr1_3, jr1_4 = st.columns(4)
             job_company = jr1_1.text_input("Название компании")
@@ -336,18 +427,21 @@ elif page == "Новый клиент":
                 job_inn = inn_c1.text_input("ИНН Компании")
                 inn_c2.markdown("<div style='padding-top: 28px;'><a href='https://www.rusprofile.ru/' target='_blank' style='text-decoration: none; font-size: 20px;'>🔍</a></div>", unsafe_allow_html=True)
                 
-            job_date = jr1_4.date_input("Дата основания компании", min_value=min_date, max_value=max_date, value=datetime(2010,1,1).date())
+            job_date = jr1_4.date_input("Дата основания компании", min_value=min_date, max_value=max_date, value=None)
             
             jr2_1, jr2_2, jr2_3, jr2_4 = st.columns(4)
             job_position = jr2_1.text_input("Должность")
             with jr2_2:
                 job_income = formatted_number_input("Доход", "job_income_input")
-            job_start_date = jr2_3.date_input("Дата трудоустройства", min_value=min_date, max_value=max_date, value=datetime(2020,1,1).date())
+            job_start_date = jr2_3.date_input("Дата трудоустройства", min_value=min_date, max_value=max_date, value=None)
             
             # Calculate experience
-            today = datetime.now().date()
-            delta = relativedelta(today, job_start_date)
-            exp_str = f"{delta.years} лет {delta.months} мес."
+            if job_start_date:
+                today = datetime.now().date()
+                delta = relativedelta(today, job_start_date)
+                exp_str = f"{delta.years} лет {delta.months} мес."
+            else:
+                exp_str = ""
             
             jr2_4.text_input("Текущий стаж", value=exp_str, disabled=True)
             
@@ -378,7 +472,7 @@ elif page == "Новый клиент":
         with f2:
             st.text_input("Срок в месяцах", value=str(loan_term_months), disabled=True)
         
-        has_coborrower_val = f3.radio("Будет ли созаемщик?", ["Да", "Нет"], horizontal=True, index=1)
+        has_coborrower_val = f3.radio("Будет ли созаемщик?", ["Да", "Нет"], horizontal=True, index=None)
         has_coborrower = has_coborrower_val == "Да"
         
         # Layout: Debts | Mos Comment | Mos Link | FSSP Comment | FSSP Link | Block Comment | Block Link
@@ -414,7 +508,7 @@ elif page == "Новый клиент":
         st.subheader("Объект")
         
         o_row1_1, o_row1_2, o_row1_3 = st.columns(3)
-        obj_type = o_row1_1.selectbox("Тип объекта", ["Квартира", "Дом", "Земельный участок", "Коммерция", "Комната", "Апартаменты", "Таунхаус"])
+        obj_type = o_row1_1.selectbox("Тип объекта", ["Квартира", "Дом", "Земельный участок", "Коммерция", "Комната", "Апартаменты", "Таунхаус"], index=None, placeholder="Выберите...")
         
         own_doc_type = o_row1_2.selectbox("Правоустановка", [
             "Договор купли-продажи", 
@@ -428,7 +522,7 @@ elif page == "Новый клиент":
             "Справка ЖСК о полной выплате пая",
             "Решение суда",
             "Другое"
-        ])
+        ], index=None, placeholder="Выберите...")
         
         gift_donor_consent = "Нет"
         gift_donor_registered = "Нет"
@@ -439,12 +533,12 @@ elif page == "Новый клиент":
         elif own_doc_type == "Договор дарения":
             st.info("Дополнительные вопросы по дарению:")
             g1, g2 = st.columns(2)
-            gift_donor_consent = g1.radio("Есть ли согласие дарителя?", ["Да", "Нет"], horizontal=True)
-            gift_donor_registered = g2.radio("Прописан ли даритель?", ["Да", "Нет"], horizontal=True)
+            gift_donor_consent = g1.radio("Есть ли согласие дарителя?", ["Да", "Нет"], horizontal=True, index=None)
+            gift_donor_registered = g2.radio("Прописан ли даритель?", ["Да", "Нет"], horizontal=True, index=None)
             if gift_donor_registered == "Да":
-                gift_donor_deregister = st.radio("Готов ли он выписаться?", ["Да", "Нет"], horizontal=True)
+                gift_donor_deregister = st.radio("Готов ли он выписаться?", ["Да", "Нет"], horizontal=True, index=None)
             
-        obj_date = o_row1_3.date_input("Дата правоустановки", min_value=min_date, max_value=max_date, value=datetime(2020,1,1).date())
+        obj_date = o_row1_3.date_input("Дата правоустановки", min_value=min_date, max_value=max_date, value=None)
         
         o1, o2, o3, o4, o5 = st.columns(5)
         with o1:
@@ -454,13 +548,13 @@ elif page == "Новый клиент":
         with o3:
             obj_total_floors = formatted_number_input("Этажность", "obj_total_floors_input")
         with o4:
-            obj_walls = st.selectbox("Материал стен", ["Кирпич", "Панель", "Монолит", "Блоки", "Дерево", "Смешанные"], index=1)
+            obj_walls = st.selectbox("Материал стен", ["Кирпич", "Панель", "Монолит", "Блоки", "Дерево", "Смешанные"], index=None, placeholder="Выберите...")
         with o5:
-            obj_renovation_val = st.radio("Реновация", ["Да", "Нет"], horizontal=True, index=1)
+            obj_renovation_val = st.radio("Реновация", ["Да", "Нет"], horizontal=True, index=None)
         obj_renovation = "Да" if obj_renovation_val == "Да" else "Нет"
         
         st.subheader("Адрес объекта")
-        copy_addr_val = st.radio("Совпадает с адресом регистрации", ["Да", "Нет"], horizontal=True, index=1)
+        copy_addr_val = st.radio("Совпадает с адресом регистрации", ["Да", "Нет"], horizontal=True, index=None)
         copy_addr = copy_addr_val == "Да"
         
         if copy_addr:
@@ -613,13 +707,32 @@ elif page == "Карточка Клиента":
             
             with c2:
                 st.write("Документы")
-                uploaded = st.file_uploader("Загрузить файл")
-                if uploaded and st.button("Отправить в облако"):
-                    folder = f"{client['fio']}_{client['created_at']}"
-                    if upload_to_yandex(uploaded, folder, uploaded.name):
-                        st.success("Загружено!")
-                    else:
-                        st.error("Ошибка")
+                # MULTIPLE FILES
+                uploaded_files = st.file_uploader("Загрузить файл", accept_multiple_files=True, label_visibility="collapsed")
+                
+                if uploaded_files and st.button("Отправить в облако"):
+                    # Check if yandex link is broken or missing
+                    folder_name = f"{client['fio']}_{client['created_at']}"
+                    
+                    # If link is missing or broken, try to recreate folder
+                    if not client['yandex_link'] or client['yandex_link'] == 'Ссылка не создана':
+                        new_link = create_yandex_folder(folder_name)
+                        # Update DB with new link
+                        client_dict = client.to_dict()
+                        client_dict['yandex_link'] = new_link
+                        db.save_client(client_dict)
+                        st.info("Папка на Яндекс Диске была пересоздана.")
+                    
+                    with st.spinner(f"⏳ Загрузка {len(uploaded_files)} файлов..."):
+                        success_count = 0
+                        for f in uploaded_files:
+                            if upload_to_yandex(f, folder_name, f.name):
+                                success_count += 1
+                        
+                        if success_count == len(uploaded_files):
+                            st.success("✅ Все файлы загружены!")
+                        else:
+                            st.warning(f"⚠️ Загружено {success_count} из {len(uploaded_files)} файлов.")
 
 # --- Page: База Банков ---
 elif page == "База Банков":
