@@ -120,3 +120,7 @@ def delete_client(client_id):
         df = df[df['id'] != client_id]
         with pd.ExcelWriter(DB_FILE, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
             df.to_excel(writer, sheet_name='Clients', index=False)
+
+
+
+

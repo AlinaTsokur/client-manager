@@ -3,35 +3,13 @@ import pandas as pd
 import requests
 import os
 import database as db
-from datetime import datetime
+from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 
 # --- Configuration ---
-YANDEX_TOKEN = "y0__xCF7vSyBhj0hTwg2oaewBUWNr9rdgvFpxw2k559OGkSU4o9VA"
+YANDEX_TOKEN = "y0__xCF7vSyBhj0hTwg2oaewBUWNr9rdgvFpxw2k559OGS_U4o9VA"
 FONTS_DIR = 'fonts'
 TEMPLATES_DIR = 'templates'
-
-# --- CSS ХАК ДЛЯ УДАЛЕНИЯ НАДПИСЕЙ В ЗАГРУЗЧИКЕ ---
-hide_uploader_text = """
-<style>
-    /* Скрываем текст "Limit 200MB per file" */
-    [data-testid="stFileUploader"] section > div > small {
-        display: none;
-    }
-    /* Скрываем иконку и текст "Drag and drop file here" */
-    [data-testid="stFileUploader"] section > div > div > span {
-        display: none; 
-    }
-    /* Делаем зону компактнее */
-    [data-testid="stFileUploader"] section {
-        padding: 0px;
-    }
-    [data-testid="stFileUploader"] section > div {
-        padding-top: 15px;
-        padding-bottom: 15px;
-    }
-</style>
-"""
 
 # Helper function for formatted number input
 def formatted_number_input(label, key, allow_float=False):
@@ -150,7 +128,6 @@ def upload_to_yandex(file_obj, folder_name, filename):
 
 # --- UI Layout ---
 st.set_page_config(page_title="Mortgage CRM", layout="wide", page_icon="🏦")
-st.markdown(hide_uploader_text, unsafe_allow_html=True) # ПРИМЕНЯЕМ СТИЛИ
 
 st.sidebar.title("СОКОЛ")
 page = st.sidebar.radio("Меню", ["Рабочий стол", "Новый клиент", "Карточка Клиента", "База Банков"])
@@ -411,17 +388,17 @@ elif page == "Новый клиент":
             current_debts = formatted_number_input("Текущие платежи по кредитам", "current_debts_input")
             
         with f3_cols[1]:
-            mosgorsud_comment = st.text_input("Суд", placeholder="Коммент")
+            mosgorsud_comment = st.text_input("МосГорСуд")
         with f3_cols[2]:
             st.markdown("<div style='padding-top: 28px;'><a href='https://www.mos-gorsud.ru/search?_cb=1764799069.0607' target='_blank' style='text-decoration: none; font-size: 16px; color: white;'>⚖️</a></div>", unsafe_allow_html=True)
 
         with f3_cols[3]:
-            fssp_comment = st.text_input("ФССП", placeholder="Коммент")
+            fssp_comment = st.text_input("ФССП")
         with f3_cols[4]:
             st.markdown("<div style='padding-top: 28px;'><a href='https://fssp.gov.ru/' target='_blank' style='text-decoration: none; font-size: 16px; color: white;'>👮‍♂️</a></div>", unsafe_allow_html=True)
 
         with f3_cols[5]:
-            block_comment = st.text_input("Блок", placeholder="Коммент")
+            block_comment = st.text_input("Блок Счета")
         with f3_cols[6]:
             st.markdown("<div style='padding-top: 28px;'><a href='https://service.nalog.ru/bi.html' target='_blank' style='text-decoration: none; font-size: 16px; color: white;'>🚫</a></div>", unsafe_allow_html=True)
         
@@ -550,7 +527,7 @@ elif page == "Новый клиент":
                     "passport_num": pass_num,
                     "passport_issued": pass_issued,
                     "passport_date": str(pass_date),
-                    "kpp": pass_code,
+                    "kpp": pass_code,  # В базе это kpp, в форме pass_code - ОК
                     "inn": inn,
                     "snils": snils,
                     "addr_index": addr_index,
@@ -574,7 +551,7 @@ elif page == "Новый клиент":
                     "obj_price": obj_price,
                     "obj_doc_type": own_doc_type,
                     "obj_date": str(obj_date),
-                    "obj_renovation": "",
+                    "obj_renovation": obj_renovation, # Исправил переменную (была пустая строка "")
                     "obj_floor": obj_floor,
                     "obj_total_floors": obj_total_floors,
                     "obj_walls": obj_walls,
@@ -589,15 +566,15 @@ elif page == "Новый клиент":
                     "job_type": job_type,
                     "job_official": job_official,
                     "job_company": job_company,
-                    "job_sphere": job_sphere,
-                    "job_found_date": str(job_date) if job_date else "",
+                    "job_sphere": job_industry,          # ИСПРАВЛЕНО (было job_sphere)
+                    "job_found_date": str(job_date) if job_date else "", # ИСПРАВЛЕНО (было job_found_date)
                     "job_ceo": job_ceo,
                     "job_phone": job_phone,
                     "job_inn": job_inn,
-                    "job_pos": job_position,
+                    "job_pos": job_position,             # ИСПРАВЛЕНО (было job_pos)
                     "job_income": job_income,
                     "job_start_date": str(job_start_date) if job_start_date else "",
-                    "job_exp": exp_str,
+                    "job_exp": exp_str,                  # ИСПРАВЛЕНО (было experience_str)
                     "credit_sum": credit_sum,
                     "loan_term": loan_term_years,
                     "has_coborrower": "Да" if has_coborrower else "Нет",
@@ -607,6 +584,7 @@ elif page == "Новый клиент":
                     "is_pledged": "Да" if is_pledged else "Нет",
                     "pledge_bank": pledge_bank,
                     "pledge_amount": pledge_amount,
+                    # Убрал дубликаты pledge_bank/amount
                     "yandex_link": yandex_link,
                     "mosgorsud_comment": mosgorsud_comment,
                     "fssp_comment": fssp_comment,
@@ -634,16 +612,14 @@ elif page == "Карточка Клиента":
                     st.write(client.to_dict())
             
             with c2:
-                # ЧИСТАЯ ЗАГРУЗКА БЕЗ НАДПИСЕЙ
-                uploaded = st.file_uploader("Загрузить документы", label_visibility="visible", accept_multiple_files=False)
-                
-                if uploaded and st.button("Загрузить в облако"):
-                    folder_name = f"{client['fio']}_{client['created_at']}"
-                    with st.spinner("⏳ Загрузка..."):
-                        if upload_to_yandex(uploaded, folder_name, uploaded.name):
-                            st.toast(f"✅ Файл {uploaded.name} сохранен!", icon=None)
-                        else:
-                            st.error("Ошибка загрузки")
+                st.write("Документы")
+                uploaded = st.file_uploader("Загрузить файл")
+                if uploaded and st.button("Отправить в облако"):
+                    folder = f"{client['fio']}_{client['created_at']}"
+                    if upload_to_yandex(uploaded, folder, uploaded.name):
+                        st.success("Загружено!")
+                    else:
+                        st.error("Ошибка")
 
 # --- Page: База Банков ---
 elif page == "База Банков":
