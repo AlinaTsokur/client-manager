@@ -6,9 +6,8 @@ import database as db
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-# --- КОНФИГУРАЦИЯ ---
+# --- Configuration ---
 YANDEX_TOKEN = "y0__xCF7vSyBhj0hTwg2oaewBUWNr9rdgvFpxw2k559OGkSU4o9VA"
-
 FONTS_DIR = 'fonts'
 TEMPLATES_DIR = 'templates'
 
@@ -34,29 +33,7 @@ hide_uploader_text = """
 </style>
 """
 
-# --- ИНТЕГРАЦИЯ С ЯНДЕКС ДИСКОМ ---
-def create_yandex_folder(folder_name):
-    headers = {'Authorization': f'OAuth {YANDEX_TOKEN}'}
-    requests.put('https://cloud-api.yandex.net/v1/disk/resources?path=/Clients', headers=headers)
-    client_path = f'/Clients/{folder_name}'
-    requests.put(f'https://cloud-api.yandex.net/v1/disk/resources?path={client_path}', headers=headers)
-    requests.put(f'https://cloud-api.yandex.net/v1/disk/resources/publish?path={client_path}', headers=headers)
-    meta_res = requests.get(f'https://cloud-api.yandex.net/v1/disk/resources?path={client_path}', headers=headers)
-    if meta_res.status_code == 200:
-        return meta_res.json().get('public_url', 'Нет ссылки')
-    return "Ошибка создания"
-
-def upload_to_yandex(file_obj, folder_name, filename):
-    headers = {'Authorization': f'OAuth {YANDEX_TOKEN}'}
-    path = f'/Clients/{folder_name}/{filename}'
-    res = requests.get(f'https://cloud-api.yandex.net/v1/disk/resources/upload?path={path}&overwrite=true', headers=headers)
-    if res.status_code == 200:
-        upload_url = res.json().get('href')
-        requests.put(upload_url, files={'file': file_obj})
-        return True
-    return False
-
-# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+# Helper function for formatted number input
 def formatted_number_input(label, key, allow_float=False):
     if key not in st.session_state:
         st.session_state[key] = ""
@@ -141,8 +118,37 @@ def formatted_phone_input(label, key):
     st.text_input(label, key=key, on_change=on_change)
     return st.session_state[key]
 
-# --- ИНИЦИАЛИЗАЦИЯ ---
+
+# --- Sidebar ---
 db.init_db()
+
+# --- Yandex Disk Integration ---
+def create_yandex_folder(folder_name):
+    headers = {'Authorization': f'OAuth {YANDEX_TOKEN}'}
+    base_path = '/Clients'
+    path = f'{base_path}/{folder_name}'
+    
+    # Ensure base folder exists
+    try:
+        requests.put(f'https://cloud-api.yandex.net/v1/disk/resources?path={base_path}', headers=headers)
+        requests.put(f'https://cloud-api.yandex.net/v1/disk/resources?path={path}', headers=headers)
+        requests.put(f'https://cloud-api.yandex.net/v1/disk/resources/publish?path={path}', headers=headers)
+        meta = requests.get(f'https://cloud-api.yandex.net/v1/disk/resources?path={path}', headers=headers).json()
+        return meta.get('public_url', 'Ссылка не создана')
+    except Exception as e:
+        return f"Ошибка: {e}"
+
+def upload_to_yandex(file_obj, folder_name, filename):
+    headers = {'Authorization': f'OAuth {YANDEX_TOKEN}'}
+    path = f'/Clients/{folder_name}/{filename}'
+    res = requests.get(f'https://cloud-api.yandex.net/v1/disk/resources/upload?path={path}&overwrite=true', headers=headers).json()
+    upload_url = res.get('href')
+    if upload_url:
+        requests.put(upload_url, files={'file': file_obj})
+        return True
+    return False
+
+# --- UI Layout ---
 st.set_page_config(page_title="Mortgage CRM", layout="wide", page_icon="🏦")
 st.markdown(hide_uploader_text, unsafe_allow_html=True) # ПРИМЕНЯЕМ СТИЛИ
 
@@ -153,10 +159,9 @@ if st.sidebar.button("Обновить данные"):
     st.cache_data.clear()
     st.rerun()
 
-# --- СТРАНИЦА: РАБОЧИЙ СТОЛ ---
+# --- Page: Рабочий стол ---
 if page == "Рабочий стол":
     st.title("📋 База Клиентов")
-    
     df = db.load_clients()
     
     if not df.empty:
@@ -168,7 +173,6 @@ if page == "Рабочий стол":
             
         if status_filter:
             df = df[df["status"].isin(status_filter)]
-            
         if search:
             df = df[df["fio"].str.contains(search, case=False)]
             
@@ -203,135 +207,202 @@ if page == "Рабочий стол":
     else:
         st.info("База данных пуста.")
 
-# --- СТРАНИЦА: НОВЫЙ КЛИЕНТ ---
+# --- Page: Новый клиент ---
 elif page == "Новый клиент":
     st.title("👤 Новый Клиент")
     
+    # Header Info - Status & Loan Type
     st.subheader("Основная информация")
     c1, c2, c3 = st.columns(3)
-    with c1:
-        fio = st.text_input("ФИО Клиента")
-    with c2:
-        status = st.selectbox("Статус", ["Новый", "В работе", "Одобрен", "Сделка", "Отказ"])
-    with c3:
-        loan_type = st.selectbox("Тип сделки", ["Ипотека", "Залог", "Рефинансирование", "Покупка"])
-        
-    c4, c5 = st.columns(2)
+    fio = c1.text_input("ФИО")
+    status = c2.selectbox("Статус", ["Новый", "В работе", "Одобрен", "Сделка", "Отказ"])
+    loan_type = c3.selectbox("Тип заявки", ["Ипотека", "Залог"])
+    
+    c4, c5, c6 = st.columns(3)
     with c4:
-        credit_sum = formatted_number_input("Сумма кредита", "credit_sum_input")
+        credit_sum = formatted_number_input("Требуемая сумма кредита", "credit_sum_input")
+    
     with c5:
-        obj_price = formatted_number_input("Стоимость объекта", "obj_price_input")
-
+        op_cols = st.columns([0.85, 0.15])
+        with op_cols[0]:
+            obj_price = formatted_number_input("Стоимость объекта", "obj_price_input")
+        op_cols[1].markdown("<br>", unsafe_allow_html=True)
+        op_cols[1].link_button("🧮", "https://www.cian.ru/kalkulator-nedvizhimosti/", help="Калькулятор недвижимости")
+        
+    first_pay = 0.0
+    if loan_type == "Ипотека":
+        with c6:
+            first_pay = formatted_number_input("Первоначальный взнос", "first_pay_input")
+            
+    # LTV and CIAN Report Row
+    # LTV left, CIAN right (same row)
+    ltv_val = 0.0
+    if obj_price > 0:
+        ltv_val = (credit_sum / obj_price) * 100
+        
+    r2_c1, r2_c2, r2_c3 = st.columns(3)
+    with r2_c1:
+        st.text_input("КЗ (Коэффициент Залога)", value=f"{ltv_val:.1f}%", disabled=True)
+    with r2_c2:
+        cian_report_link = st.text_input("Отчет об оценке ЦИАН")
+    
+    # Pledge Logic
+    # Inline: Is Pledged? | Bank | Amount
+    p_c1, p_c2, p_c3 = st.columns([1, 1, 1])
+    
+    with p_c1:
+        is_pledged_val = st.radio("Объект сейчас в залоге?", ["Да", "Нет"], horizontal=True, index=1)
+    is_pledged = is_pledged_val == "Да"
+    
+    pledge_bank = ""
+    pledge_amount = 0.0
+    
+    if is_pledged:
+        with p_c2:
+            pledge_bank = st.text_input("Где заложен (Банк)")
+        with p_c3:
+            pledge_amount = formatted_number_input("Сумма текущего долга", "pledge_amount_input")
+    
+    st.divider()
+    
     tab1, tab2, tab3 = st.tabs(["Личные данные", "Финансы", "Залог"])
     
     with tab1:
-        pd1, pd2 = st.columns(2)
-        with pd1:
+        min_date = datetime(1930, 1, 1).date()
+        max_date = datetime.now().date()
+        
+        # Row 1: Gender, DOB, Birth Place
+        pd_r1_1, pd_r1_2, pd_r1_3 = st.columns(3)
+        gender = pd_r1_1.radio("Пол", ["Мужской", "Женский"], horizontal=True)
+        dob = pd_r1_2.date_input("Дата рождения", min_value=min_date, max_value=max_date, value=datetime(1980,1,1).date())
+        birth_place = pd_r1_3.text_input("Место рождения")
+        
+        # Row 2: Phone, Email
+        pd_r2_1, pd_r2_2 = st.columns(2)
+        with pd_r2_1:
             phone = formatted_phone_input("Телефон", "phone_input")
-        with pd2:
-            email_user = st.text_input("Email (имя)", placeholder="example")
-            email_domain = st.selectbox("Домен", ["@gmail.com", "@mail.ru", "@yandex.ru", "@bk.ru", "@list.ru", "@inbox.ru", "@icloud.com", "Другое"], label_visibility="collapsed")
-            if email_domain == "Другое":
-                email_full_domain = st.text_input("Введите домен", placeholder="@domain.com")
-                email = f"{email_user}{email_full_domain}" if email_user and email_full_domain else ""
+        with pd_r2_2:
+            em_c1, em_c2 = st.columns([2, 1])
+            email_user = em_c1.text_input("Email")
+            email_domain = em_c2.selectbox("Домен", ["@gmail.com", "@ya.ru", "@mail.ru", "Вручную"], label_visibility="hidden")
+            
+            if email_domain and email_domain != "Вручную":
+                email = email_user + email_domain
             else:
-                email = f"{email_user}{email_domain}" if email_user else ""
-            st.caption(f"Итоговый Email: {email}")
-
-        st.divider()
-        st.markdown("##### Паспортные данные")
-        p1, p2, p3 = st.columns(3)
-        with p1:
-            passport_series = formatted_number_input("Серия", "pass_series")
-            passport_num = formatted_number_input("Номер", "pass_num")
-        with p2:
-            passport_code = formatted_number_input("Код подразделения", "pass_code")
-            passport_date = st.date_input("Дата выдачи", value=None)
-        with p3:
-            passport_issued = st.text_input("Кем выдан")
-            
-        gender = st.radio("Пол", ["Мужской", "Женский"], horizontal=True)
-        dob = st.date_input("Дата рождения", value=datetime(1990, 1, 1))
-        birth_place = st.text_input("Место рождения")
+                email = email_user
+        
+        # Row 3: Marital Status, Children, Marriage Contract
+        pd_r3_1, pd_r3_2, pd_r3_3 = st.columns(3)
+        family = pd_r3_1.selectbox("Семейное положение", ["Холост/Не замужем", "Женат/Замужем", "Разведен(а)", "Вдовец/Вдова"])
+        children_count = pd_r3_2.number_input("Кол-во несовершеннолетних детей", 0, 10, 0)
+        marriage_contract = pd_r3_3.radio("Наличие брачного договора / нотариального согласия", ["Брачный контракт", "Нотариальное согласие", "Нет"], horizontal=True)
+        
+        children_dates = []
+        if children_count > 0:
+            st.caption("Даты рождения детей:")
+            cols = st.columns(min(children_count, 4))
+            for i in range(children_count):
+                with cols[i % 4]:
+                    d = st.date_input(f"Ребенок {i+1}", min_value=datetime(2000,1,1).date(), max_value=max_date, key=f"child_{i}")
+                    children_dates.append(str(d))
         
         st.divider()
-        st.markdown("##### Семья")
-        f1, f2 = st.columns(2)
-        with f1:
-            family_status = st.selectbox("Семейное положение", ["Холост/Не замужем", "Женат/Замужем", "Разведен/а", "Вдовец/Вдова"])
-        with f2:
-            children = st.number_input("Количество детей", min_value=0, step=1)
-            
-        st.divider()
-        st.markdown("##### Адрес регистрации")
-        ar1, ar2, ar3 = st.columns([1, 2, 2])
-        with ar1: addr_index = formatted_number_input("Индекс", "addr_index")
-        with ar2: addr_city = st.text_input("Город/Населенный пункт", key="addr_city")
-        with ar3: addr_street = st.text_input("Улица", key="addr_street")
+        st.subheader("Паспорт")
+        p1, p2, p3, p4 = st.columns(4)
+        pass_ser = p1.text_input("Серия")
+        pass_num = p2.text_input("Номер")
+        pass_code = p3.text_input("Код подразделения")
+        pass_date = p4.date_input("Дата выдачи", min_value=datetime(1990, 1, 1).date(), max_value=max_date, value=datetime(2010,1,1).date())
         
-        ar4, ar5, ar6, ar7, ar8 = st.columns(5)
-        with ar4: addr_house = st.text_input("Дом", key="addr_house")
-        with ar5: addr_korpus = st.text_input("Корпус", key="addr_korpus")
-        with ar6: addr_structure = st.text_input("Строение", key="addr_structure")
-        with ar7: addr_flat = st.text_input("Квартира", key="addr_flat")
-        with ar8: 
-            st.markdown("<div style='padding-top: 28px;'><a href='https://pochta.ru/indexes' target='_blank' style='text-decoration: none; font-size: 24px;'>🔍</a></div>", unsafe_allow_html=True)
-
-        st.divider()
-        st.markdown("##### Адрес объекта (если отличается)")
-        copy_addr = st.checkbox("Совпадает с адресом регистрации")
+        pass_issued = st.text_input("Кем выдан")
         
-        if not copy_addr:
-            ao1, ao2, ao3 = st.columns([1, 2, 2])
-            with ao1: obj_index = formatted_number_input("Индекс (Объект)", "obj_index")
-            with ao2: obj_city = st.text_input("Город (Объект)", key="obj_city")
-            with ao3: obj_street = st.text_input("Улица (Объект)", key="obj_street")
-            
-            ao4, ao5, ao6, ao7 = st.columns(4)
-            with ao4: obj_house = st.text_input("Дом (Объект)", key="obj_house")
-            with ao5: obj_korpus = st.text_input("Корпус (Объект)", key="obj_korpus")
-            with ao6: obj_structure = st.text_input("Строение (Объект)", key="obj_structure")
-            with ao7: obj_flat = st.text_input("Квартира (Объект)", key="obj_flat")
-        else:
-            # Placeholder values if copied
-            obj_index = addr_index
-            obj_city = addr_city
-            obj_street = addr_street
-            obj_house = addr_house
-            obj_korpus = addr_korpus
-            obj_structure = addr_structure
-            obj_flat = addr_flat
-
+        st.subheader("Адрес регистрации")
+        a1, a2, a3, a4 = st.columns([1, 0.2, 1, 1])
+        addr_index = a1.text_input("Индекс")
+        a2.markdown("<div style='padding-top: 28px;'><a href='https://xn--80a1acny.ru.com/' target='_blank' style='text-decoration: none; font-size: 20px;'>🔍</a></div>", unsafe_allow_html=True)
+        addr_region = a3.text_input("Регион")
+        addr_city = a4.text_input("Город")
+        
+        a5, a6, a7, a8, a9 = st.columns(5)
+        addr_street = a5.text_input("Улица")
+        addr_house = a6.text_input("Дом")
+        addr_korpus = a7.text_input("Корпус")
+        addr_structure = a8.text_input("Строение")
+        addr_flat = a9.text_input("Квартира")
+        
+        st.divider()
+        d1, d2 = st.columns(2)
+        snils = d1.text_input("СНИЛС")
+        
+        with d2:
+            inn_cols = st.columns([0.85, 0.15])
+            inn = inn_cols[0].text_input("ИНН")
+            inn_cols[1].markdown("<br>", unsafe_allow_html=True) # Spacer to align with input
+            inn_cols[1].link_button("🔍", "https://service.nalog.ru/inn.do", help="Узнать/Проверить ИНН")
+        
     with tab2:
-        st.subheader("Работа и Финансы")
-        job_type = st.selectbox("Тип занятости", ["Найм", "ИП", "Самозанятый", "Бизнес", "Пенсионер"])
+        st.subheader("Работа")
         
-        j1, j2 = st.columns(2)
-        with j1:
-            job_sphere = st.text_input("Сфера деятельности")
-            job_company = st.text_input("Название компании")
-            job_phone = formatted_phone_input("Телефон организации", "job_phone")
-            job_site = st.text_input("Сайт компании")
-        with j2:
-            job_inn = formatted_number_input("ИНН Организации", "job_inn")
-            job_ceo = st.text_input("ФИО Ген. директора")
-            job_pos = st.text_input("Должность")
+        jr1_1, jr1_2 = st.columns(2)
+        job_type = jr1_1.selectbox("Тип занятости", ["Найм", "ИП", "Собственник бизнеса", "Самозанятый", "Пенсионер"])
+        job_official_val = jr1_2.radio("Официально трудоустроен", ["Да", "Нет"], horizontal=True, index=0)
+        job_official = job_official_val == "Да"
+        
+        if job_type != "Не работаю":
+            # Compact fields: 4 cols per row
+            jr1_1, jr1_2, jr1_3, jr1_4 = st.columns(4)
+            job_company = jr1_1.text_input("Название компании")
+            job_industry = jr1_2.text_input("Сфера деятельности")
             
-        st.divider()
-        f1, f2, f3 = st.columns(3)
+            with jr1_3:
+                inn_c1, inn_c2 = st.columns([4, 1])
+                job_inn = inn_c1.text_input("ИНН Компании")
+                inn_c2.markdown("<div style='padding-top: 28px;'><a href='https://www.rusprofile.ru/' target='_blank' style='text-decoration: none; font-size: 20px;'>🔍</a></div>", unsafe_allow_html=True)
+                
+            job_date = jr1_4.date_input("Дата основания компании", min_value=min_date, max_value=max_date, value=datetime(2010,1,1).date())
+            
+            jr2_1, jr2_2, jr2_3, jr2_4 = st.columns(4)
+            job_position = jr2_1.text_input("Должность")
+            with jr2_2:
+                job_income = formatted_number_input("Доход", "job_income_input")
+            job_start_date = jr2_3.date_input("Дата трудоустройства", min_value=min_date, max_value=max_date, value=datetime(2020,1,1).date())
+            
+            # Calculate experience
+            today = datetime.now().date()
+            delta = relativedelta(today, job_start_date)
+            exp_str = f"{delta.years} лет {delta.months} мес."
+            
+            jr2_4.text_input("Текущий стаж", value=exp_str, disabled=True)
+            
+            jr3_1, jr3_2 = st.columns(2)
+            job_ceo = jr3_1.text_input("ФИО Гендиректора")
+            with jr3_2:
+                job_phone = formatted_phone_input("Рабочий телефон", "job_phone_input")
+        else:
+            # Defaults for no job
+            job_company = ""
+            job_industry = ""
+            job_inn = ""
+            job_date = None
+            job_ceo = ""
+            job_phone = ""
+            job_position = ""
+            job_income = 0
+            job_start_date = None
+            exp_str = ""
+        
+        st.subheader("Финансы")
+        
+        f1, f2, f3 = st.columns([1, 1, 2])
         with f1:
-            job_income = formatted_number_input("Доход в месяц", "job_income")
+            loan_term_years = formatted_number_input("Срок кредита (лет)", "loan_term_input")
+        
+        loan_term_months = loan_term_years * 12
         with f2:
-            job_start_date = st.date_input("Дата трудоустройства", value=None)
-        with f3:
-            if job_start_date:
-                delta = relativedelta(datetime.now().date(), job_start_date)
-                st.info(f"Стаж: {delta.years} лет {delta.months} мес.")
-                job_exp = f"{delta.years} лет {delta.months} мес."
-            else:
-                job_exp = "0"
-
-        st.divider()
+            st.text_input("Срок в месяцах", value=str(loan_term_months), disabled=True)
+        
+        has_coborrower_val = f3.radio("Будет ли созаемщик?", ["Да", "Нет"], horizontal=True, index=1)
+        has_coborrower = has_coborrower_val == "Да"
         
         # Layout: Debts | Mos Comment | Mos Link | FSSP Comment | FSSP Link | Block Comment | Block Link
         f3_cols = st.columns([3, 2, 1.2, 2, 1.2, 2, 1.2])
@@ -356,112 +427,210 @@ elif page == "Новый клиент":
         
         assets_list = st.multiselect("Доп. активы", ["Машина", "Квартира", "Дом с ЗУ", "Коммерция", "Другое"])
         assets_str = ", ".join(assets_list)
-
-    with tab3:
-        st.subheader("Залог")
-        is_pledged = st.checkbox("Есть обременение?")
-        if is_pledged:
-            pledge_bank = st.text_input("Банк залогодержатель")
-            pledge_amount = formatted_number_input("Остаток долга", "pledge_amount")
-        else:
-            pledge_bank = ""
-            pledge_amount = 0
-
-    if st.button("Сохранить Клиента", type="primary"):
-        if fio:
-            client_id = str(hash(fio + str(datetime.now())))
-            folder_name = f"{fio}_{datetime.now().strftime('%Y-%m-%d')}"
-            yandex_link = create_yandex_folder(folder_name)
-            
-            # Prepare data
-            data = {
-                "id": client_id,
-                "created_at": datetime.now().strftime('%Y-%m-%d'),
-                "status": status,
-                "loan_type": loan_type,
-                "fio": fio,
-                "credit_sum": credit_sum,
-                "obj_price": obj_price,
-                "phone": phone,
-                "email": email,
-                "passport_series": passport_series,
-                "passport_num": passport_num,
-                "passport_code": passport_code,
-                "passport_date": str(passport_date) if passport_date else "",
-                "passport_issued": passport_issued,
-                "gender": gender,
-                "dob": str(dob),
-                "birth_place": birth_place,
-                "family_status": family_status,
-                "children": children,
-                "addr_index": addr_index,
-                "addr_city": addr_city,
-                "addr_street": addr_street,
-                "addr_house": addr_house,
-                "addr_korpus": addr_korpus,
-                "addr_structure": addr_structure,
-                "addr_flat": addr_flat,
-                "obj_index": obj_index,
-                "obj_city": obj_city,
-                "obj_street": obj_street,
-                "obj_house": obj_house,
-                "obj_korpus": obj_korpus,
-                "obj_structure": obj_structure,
-                "obj_flat": obj_flat,
-                "job_type": job_type,
-                "job_sphere": job_sphere,
-                "job_company": job_company,
-                "job_phone": job_phone,
-                "job_site": job_site,
-                "job_inn": job_inn,
-                "job_ceo": job_ceo,
-                "job_pos": job_pos,
-                "job_income": job_income,
-                "job_start_date": str(job_start_date) if job_start_date else "",
-                "job_exp": job_exp,
-                "current_debts": current_debts,
-                "mosgorsud_comment": mosgorsud_comment,
-                "fssp_comment": fssp_comment,
-                "block_comment": block_comment,
-                "assets": assets_str,
-                "is_pledged": "Да" if is_pledged else "Нет",
-                "pledge_bank": pledge_bank,
-                "pledge_amount": pledge_amount,
-                "yandex_link": yandex_link
-            }
-            
-            db.save_client(data)
-            st.success(f"Клиент {fio} сохранен!")
-            st.balloons()
-        else:
-            st.error("Введите ФИО")
-
-# --- СТРАНИЦА: КАРТОЧКА КЛИЕНТА ---
-elif page == "Карточка Клиента":
-    st.title("Карточка Клиента")
-    
-    df = db.load_clients()
-    
-    if not df.empty:
-        client_list = sorted(df["fio"].tolist())
-        selected_name = st.selectbox("Поиск клиента", client_list, index=None, placeholder="Выберите клиента...")
+        if "Другое" in assets_list:
+            other_asset = st.text_input("Укажите другое имущество")
+            assets_str += f" ({other_asset})"
         
+
+        
+    with tab3:
+        st.subheader("Объект")
+        
+        o_row1_1, o_row1_2, o_row1_3 = st.columns(3)
+        obj_type = o_row1_1.selectbox("Тип объекта", ["Квартира", "Дом", "Земельный участок", "Коммерция", "Комната", "Апартаменты", "Таунхаус"])
+        
+        own_doc_type = o_row1_2.selectbox("Правоустановка", [
+            "Договор купли-продажи", 
+            "Договор дарения", 
+            "Наследство", 
+            "Приватизация", 
+            "ДДУ", 
+            "Договор мены",
+            "Договор ренты",
+            "Договор уступки права требования",
+            "Справка ЖСК о полной выплате пая",
+            "Решение суда",
+            "Другое"
+        ])
+        
+        gift_donor_consent = "Нет"
+        gift_donor_registered = "Нет"
+        gift_donor_deregister = "Нет"
+        
+        if own_doc_type == "Другое":
+            own_doc_type = o_row1_2.text_input("Впишите документ")
+        elif own_doc_type == "Договор дарения":
+            st.info("Дополнительные вопросы по дарению:")
+            g1, g2 = st.columns(2)
+            gift_donor_consent = g1.radio("Есть ли согласие дарителя?", ["Да", "Нет"], horizontal=True)
+            gift_donor_registered = g2.radio("Прописан ли даритель?", ["Да", "Нет"], horizontal=True)
+            if gift_donor_registered == "Да":
+                gift_donor_deregister = st.radio("Готов ли он выписаться?", ["Да", "Нет"], horizontal=True)
+            
+        obj_date = o_row1_3.date_input("Дата правоустановки", min_value=min_date, max_value=max_date, value=datetime(2020,1,1).date())
+        
+        o1, o2, o3, o4, o5 = st.columns(5)
+        with o1:
+            obj_area = formatted_number_input("Площадь (м2)", "obj_area_input", allow_float=True)
+        with o2:
+            obj_floor = formatted_number_input("Этаж", "obj_floor_input")
+        with o3:
+            obj_total_floors = formatted_number_input("Этажность", "obj_total_floors_input")
+        with o4:
+            obj_walls = st.selectbox("Материал стен", ["Кирпич", "Панель", "Монолит", "Блоки", "Дерево", "Смешанные"], index=1)
+        with o5:
+            obj_renovation_val = st.radio("Реновация", ["Да", "Нет"], horizontal=True, index=1)
+        obj_renovation = "Да" if obj_renovation_val == "Да" else "Нет"
+        
+        st.subheader("Адрес объекта")
+        copy_addr_val = st.radio("Совпадает с адресом регистрации", ["Да", "Нет"], horizontal=True, index=1)
+        copy_addr = copy_addr_val == "Да"
+        
+        if copy_addr:
+            # Fields hidden, will copy on save
+            st.info("Адрес объекта будет скопирован из адреса регистрации.")
+            obj_index = ""
+            obj_region = ""
+            obj_city = ""
+            obj_street = ""
+            obj_house = ""
+            obj_korpus = ""
+            obj_structure = ""
+            obj_flat = ""
+        else:
+            oa1, oa2, oa3, oa4 = st.columns([1, 0.2, 1, 1])
+            obj_index = oa1.text_input("Индекс", key="obj_index")
+            oa2.markdown("<div style='padding-top: 28px;'><a href='https://xn--80a1acny.ru.com/' target='_blank' style='text-decoration: none; font-size: 20px;'>🔍</a></div>", unsafe_allow_html=True)
+            obj_region = oa3.text_input("Регион", key="obj_region")
+            obj_city = oa4.text_input("Город", key="obj_city")
+            
+            oa5, oa6, oa7, oa8, oa9 = st.columns(5)
+            obj_street = oa5.text_input("Улица", key="obj_street")
+            obj_house = oa6.text_input("Дом", key="obj_house")
+            obj_korpus = oa7.text_input("Корпус", key="obj_korpus")
+            obj_structure = oa8.text_input("Строение", key="obj_structure")
+            obj_flat = oa9.text_input("Квартира", key="obj_flat")
+            
+        # cian_link removed from here as it moved to top
+        
+    submitted = st.button("Сохранить клиента")
+        
+    if submitted:
+        if not fio:
+            st.error("ФИО обязательно для заполнения!")
+        else:
+            # Copy address if needed
+            if copy_addr:
+                obj_index = addr_index
+                obj_region = addr_region
+                obj_city = addr_city
+                obj_street = addr_street
+                obj_house = addr_house
+                obj_korpus = addr_korpus
+                obj_structure = addr_structure
+                obj_flat = addr_flat
+                
+            with st.spinner("Сохранение..."):
+                folder_name = f"{fio}_{datetime.now().strftime('%Y-%m-%d')}"
+                yandex_link = create_yandex_folder(folder_name)
+                client_id = str(hash(fio + str(datetime.now())))
+                
+                data = {
+                    "id": client_id,
+                    "created_at": datetime.now().strftime('%Y-%m-%d'),
+                    "status": status,
+                    "loan_type": loan_type,
+                    "fio": fio,
+                    "gender": gender,
+                    "dob": str(dob),
+                    "birth_place": birth_place,
+                    "phone": phone,
+                    "email": email,
+                    "passport_ser": pass_ser,
+                    "passport_num": pass_num,
+                    "passport_issued": pass_issued,
+                    "passport_date": str(pass_date),
+                    "kpp": pass_code,
+                    "inn": inn,
+                    "snils": snils,
+                    "addr_index": addr_index,
+                    "addr_region": addr_region,
+                    "addr_city": addr_city,
+                    "addr_street": addr_street,
+                    "addr_house": addr_house,
+                    "addr_korpus": addr_korpus,
+                    "addr_structure": addr_structure,
+                    "addr_flat": addr_flat,
+                    "obj_type": obj_type,
+                    "obj_index": obj_index,
+                    "obj_region": obj_region,
+                    "obj_city": obj_city,
+                    "obj_street": obj_street,
+                    "obj_house": obj_house,
+                    "obj_korpus": obj_korpus,
+                    "obj_structure": obj_structure,
+                    "obj_flat": obj_flat,
+                    "obj_area": obj_area,
+                    "obj_price": obj_price,
+                    "obj_doc_type": own_doc_type,
+                    "obj_date": str(obj_date),
+                    "obj_renovation": "",
+                    "obj_floor": obj_floor,
+                    "obj_total_floors": obj_total_floors,
+                    "obj_walls": obj_walls,
+                    "gift_donor_consent": gift_donor_consent,
+                    "gift_donor_registered": gift_donor_registered,
+                    "gift_donor_deregister": gift_donor_deregister,
+                    "cian_report_link": cian_report_link,
+                    "family_status": family,
+                    "marriage_contract": marriage_contract,
+                    "children_count": children_count,
+                    "children_dates": "; ".join(children_dates),
+                    "job_type": job_type,
+                    "job_official": job_official,
+                    "job_company": job_company,
+                    "job_sphere": job_sphere,
+                    "job_found_date": str(job_date) if job_date else "",
+                    "job_ceo": job_ceo,
+                    "job_phone": job_phone,
+                    "job_inn": job_inn,
+                    "job_pos": job_position,
+                    "job_income": job_income,
+                    "job_start_date": str(job_start_date) if job_start_date else "",
+                    "job_exp": exp_str,
+                    "credit_sum": credit_sum,
+                    "loan_term": loan_term_years,
+                    "has_coborrower": "Да" if has_coborrower else "Нет",
+                    "first_pay": first_pay,
+                    "current_debts": current_debts,
+                    "assets": assets_str,
+                    "is_pledged": "Да" if is_pledged else "Нет",
+                    "pledge_bank": pledge_bank,
+                    "pledge_amount": pledge_amount,
+                    "yandex_link": yandex_link,
+                    "mosgorsud_comment": mosgorsud_comment,
+                    "fssp_comment": fssp_comment,
+                    "block_comment": block_comment
+                }
+                db.save_client(data)
+                st.success(f"Клиент {fio} сохранен!")
+
+# --- Page: Карточка Клиента ---
+elif page == "Карточка Клиента":
+    st.title("🗂 Карточка Клиента")
+    df = db.load_clients()
+    if not df.empty:
+        selected_name = st.selectbox("Выберите клиента", df["fio"].tolist())
         if selected_name:
             client = df[df["fio"] == selected_name].iloc[0]
             
             c1, c2 = st.columns([2, 1])
             with c1:
                 st.subheader(client['fio'])
-                st.caption(f"Статус: {client['status']}")
-                st.text(f"📞 {client.get('phone', 'Нет номера')}")
-                
-                st.divider()
-                if client.get('yandex_link') and str(client['yandex_link']).startswith('http'):
-                    st.link_button("📂 Папка на Яндекс Диске", client['yandex_link'])
-                else:
-                    st.caption("Нет папки в облаке")
-
-                with st.expander("Анкетные данные"):
+                st.write(f"**Статус:** {client['status']}")
+                st.write(f"**Телефон:** {client['phone']}")
+                st.write(f"**Яндекс Диск:** {client['yandex_link']}")
+                with st.expander("Все данные"):
                     st.write(client.to_dict())
             
             with c2:
@@ -469,8 +638,6 @@ elif page == "Карточка Клиента":
                 uploaded = st.file_uploader("Загрузить документы", label_visibility="visible", accept_multiple_files=False)
                 
                 if uploaded and st.button("Загрузить в облако"):
-                    # Имя папки восстанавливаем по логике создания (ФИО + Дата)
-                    # В идеале хранить имя папки в БД, но пока так
                     folder_name = f"{client['fio']}_{client['created_at']}"
                     with st.spinner("⏳ Загрузка..."):
                         if upload_to_yandex(uploaded, folder_name, uploaded.name):
@@ -478,19 +645,23 @@ elif page == "Карточка Клиента":
                         else:
                             st.error("Ошибка загрузки")
 
-    else:
-        st.info("Нет клиентов в базе")
-
-# --- СТРАНИЦА: БАЗА БАНКОВ ---
+# --- Page: База Банков ---
 elif page == "База Банков":
-    st.title("🏦 База Банков")
+    st.title("🏦 Банки")
     df = db.load_banks()
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(df)
     
-    with st.expander("Добавить банк"):
-        with st.form("new_bank"):
-            n = st.text_input("Название банка")
-            m = st.text_input("Email менеджера")
-            if st.form_submit_button("Добавить"):
-                db.save_bank({"name": n, "manager_email": m})
-                st.rerun()
+    with st.form("new_bank"):
+        b_name = st.text_input("Название")
+        b_addr = st.text_input("Адрес")
+        b_man = st.text_input("Менеджер")
+        b_mail = st.text_input("Email")
+        b_tel = st.text_input("Телефон")
+        if st.form_submit_button("Добавить"):
+            db.save_bank({
+                "name": b_name, "address": b_addr, 
+                "manager_fio": b_man, "manager_email": b_mail, 
+                "manager_phone": b_tel
+            })
+            st.success("Банк добавлен")
+            st.rerun()
