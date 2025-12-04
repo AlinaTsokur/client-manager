@@ -97,7 +97,18 @@ def formatted_phone_input(label, key):
     return st.session_state[key]
 
 
-# --- Sidebar ---
+# Helper function to parse FIO
+def parse_fio(fio_str):
+    """Splits FIO string into surname, name, patronymic."""
+    if not fio_str:
+        return "", "", ""
+    parts = fio_str.strip().split()
+    surname = parts[0] if len(parts) > 0 else ""
+    name = parts[1] if len(parts) > 1 else ""
+    patronymic = " ".join(parts[2:]) if len(parts) > 2 else ""
+    return surname, name, patronymic
+
+
 db.init_db()
 
 # --- Yandex Disk Integration ---
@@ -186,6 +197,14 @@ hide_uploader_text = """
     justify-content: center;
     border-radius: 5px;
 }
+
+/* Adjust Page Margins */
+.block-container {
+    padding-top: 3rem !important; /* Reduced by ~50% (default is usually ~6rem) */
+    padding-left: 10rem !important; /* Increased side margins (default is usually ~5rem) */
+    padding-right: 10rem !important;
+    max-width: 100% !important;
+}
 </style>
 """
 
@@ -193,63 +212,210 @@ hide_uploader_text = """
 st.set_page_config(page_title="Mortgage CRM", layout="wide", page_icon="🏦")
 st.markdown(hide_uploader_text, unsafe_allow_html=True) # ПРИМЕНЯЕМ СТИЛИ
 
-st.sidebar.title("СОКОЛ")
-page = st.sidebar.radio("Меню", ["Рабочий стол", "Новый клиент", "Карточка Клиента", "База Банков"])
+st.title("СОКОЛ")
 
-if st.sidebar.button("Обновить данные"):
-    st.cache_data.clear()
-    st.rerun()
+# --- MIGRATION: Auto-parse FIO for existing clients ---
+# This runs once per rerun, but we can optimize to run only if needed.
+# For simplicity, we check if any client has empty surname but present FIO.
+if 'migration_done' not in st.session_state:
+    migration_df = db.load_clients()
+    if not migration_df.empty and 'fio' in migration_df.columns:
+        changed = False
+        for index, row in migration_df.iterrows():
+            # Check if surname is missing but FIO exists
+            if pd.notna(row['fio']) and row['fio'] and (pd.isna(row.get('surname')) or row['surname'] == ""):
+                s, n, p = parse_fio(str(row['fio']))
+                migration_df.at[index, 'surname'] = s
+                migration_df.at[index, 'name'] = n
+                migration_df.at[index, 'patronymic'] = p
+                changed = True
+        
+        if changed:
+            db.save_all_clients(migration_df)
+            st.toast("✅ База данных обновлена: ФИО разделены на части.")
+    
+    st.session_state['migration_done'] = True
+
+# --- Top Navigation ---
+tab_desktop, tab_new_client, tab_client_card, tab_bank_db = st.tabs(["Рабочий стол", "Новый клиент", "Карточка Клиента", "База Банков"])
 
 # --- Page: Рабочий стол ---
-if page == "Рабочий стол":
+# --- Page: Рабочий стол ---
+with tab_desktop:
     st.title("📋 База Клиентов")
     df = db.load_clients()
     
-    if not df.empty:
-        col1, col2 = st.columns(2)
-        with col1:
-            status_filter = st.multiselect("Фильтр по статусу", options=df["status"].unique())
-        with col2:
-            search = st.text_input("Поиск по ФИО")
-            
-        if status_filter:
-            df = df[df["status"].isin(status_filter)]
-        if search:
-            df = df[df["fio"].str.contains(search, case=False)]
-            
-        # Add Select column for deletion
-        df.insert(0, "Select", False)
+    # Ensure date columns are datetime objects to avoid StreamlitAPIException
+    date_cols = ["dob", "created_at", "passport_date", "job_date", "job_start_date", "job_found_date", "obj_date"]
+    for col in date_cols:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], errors='coerce')
+            # Replace NaT with None (Streamlit requires None for empty dates, not NaT)
+            df[col] = df[col].astype(object).where(df[col].notnull(), None)
+
+    # Force all other columns to string if they are not numeric/date, to avoid float inference for empty cols
+    # This fixes "configured column type text ... not compatible ... FLOAT"
+    numeric_cols = ["credit_sum", "obj_price", "first_pay", "current_debts", "pledge_amount", "job_income", "obj_area", "obj_floor", "obj_total_floors", "children_count", "loan_term"]
+    
+    for col in df.columns:
+        if col not in date_cols and col not in numeric_cols and col != "Select":
+            # Treat as text
+            # Also clean "123.0" -> "123" artifacts for identifiers
+            val = df[col].astype(str).replace("nan", "").replace("None", "")
+            # If it ends with .0, remove it (simple heuristic for identifiers like passport, inn)
+            df[col] = val.apply(lambda x: x[:-2] if x.endswith(".0") else x)
+    
+    # Filters
+    col1, col2 = st.columns(2)
+    with col1:
+        status_filter = st.multiselect("Фильтр по статусу", options=df["status"].unique() if not df.empty else [])
+    with col2:
+        search = st.text_input("Поиск по ФИО")
         
-        # Use data_editor to allow checkbox selection
-        edited_df = st.data_editor(
-            df,
-            column_config={
-                "Select": st.column_config.CheckboxColumn(
-                    "Выбрать",
-                    help="Выберите для удаления",
-                    default=False,
-                )
-            },
-            disabled=df.columns[1:], # Disable editing for other columns
-            hide_index=True,
-            key="client_editor"
-        )
+    filtered_df = df.copy()
+    if status_filter:
+        filtered_df = filtered_df[filtered_df["status"].isin(status_filter)]
+    if search:
+        filtered_df = filtered_df[filtered_df["fio"].str.contains(search, case=False, na=False)]
         
-        if st.button("Удалить выбранные"):
-            # Find selected rows
-            selected_rows = edited_df[edited_df["Select"]]
-            if not selected_rows.empty:
-                for index, row in selected_rows.iterrows():
-                    db.delete_client(row["id"])
-                st.success(f"Удалено {len(selected_rows)} клиентов.")
-                st.rerun()
-            else:
-                st.warning("Выберите клиентов для удаления.")
-    else:
-        st.info("База данных пуста.")
+    # Data Editor
+    edited_df = st.data_editor(
+        filtered_df,
+        num_rows="dynamic",
+        disabled=["id", "created_at", "surname", "name", "patronymic"],
+        key="client_editor",
+        use_container_width=True,
+        column_config={
+            "id": st.column_config.TextColumn("ID", disabled=True),
+            "created_at": st.column_config.DateColumn("Создан", format="YYYY-MM-DD", disabled=True),
+            "status": st.column_config.SelectboxColumn("Статус", options=["Новый", "В работе", "Одобрен", "Сделка", "Отказ", "Архив"]),
+            "loan_type": st.column_config.SelectboxColumn("Тип", options=["Ипотека", "Залог"]),
+            "fio": st.column_config.TextColumn("ФИО"),
+            "surname": st.column_config.TextColumn("Фамилия"),
+            "name": st.column_config.TextColumn("Имя"),
+            "patronymic": st.column_config.TextColumn("Отчество"),
+            "dob": st.column_config.DateColumn("Дата рождения", format="DD.MM.YYYY"),
+            "birth_place": st.column_config.TextColumn("Место рождения"),
+            "phone": st.column_config.TextColumn("Телефон"),
+            "email": st.column_config.TextColumn("Email"),
+            "passport_ser": st.column_config.TextColumn("Паспорт Серия"),
+            "passport_num": st.column_config.TextColumn("Паспорт Номер"),
+            "passport_issued": st.column_config.TextColumn("Кем выдан"),
+            "passport_date": st.column_config.DateColumn("Дата выдачи", format="DD.MM.YYYY"),
+            "kpp": st.column_config.TextColumn("Код подр."),
+            "inn": st.column_config.TextColumn("ИНН"),
+            "snils": st.column_config.TextColumn("СНИЛС"),
+            "addr_index": st.column_config.TextColumn("Индекс (Рег)"),
+            "addr_region": st.column_config.TextColumn("Регион (Рег)"),
+            "addr_city": st.column_config.TextColumn("Город (Рег)"),
+            "addr_street": st.column_config.TextColumn("Улица (Рег)"),
+            "addr_house": st.column_config.TextColumn("Дом (Рег)"),
+            "addr_korpus": st.column_config.TextColumn("Корпус (Рег)"),
+            "addr_structure": st.column_config.TextColumn("Строение (Рег)"),
+            "addr_flat": st.column_config.TextColumn("Кв (Рег)"),
+            "obj_type": st.column_config.TextColumn("Тип объекта"),
+            "obj_index": st.column_config.TextColumn("Индекс (Объект)"),
+            "obj_region": st.column_config.TextColumn("Регион (Объект)"),
+            "obj_city": st.column_config.TextColumn("Город (Объект)"),
+            "obj_street": st.column_config.TextColumn("Улица (Объект)"),
+            "obj_house": st.column_config.TextColumn("Дом (Объект)"),
+            "obj_korpus": st.column_config.TextColumn("Корпус (Объект)"),
+            "obj_structure": st.column_config.TextColumn("Строение (Объект)"),
+            "obj_flat": st.column_config.TextColumn("Кв (Объект)"),
+            "obj_area": st.column_config.NumberColumn("Площадь", format="%.1f"),
+            "obj_price": st.column_config.NumberColumn("Стоимость объекта", format="%d"),
+            "obj_doc_type": st.column_config.TextColumn("Документ основания"),
+            "obj_date": st.column_config.DateColumn("Дата основания", format="DD.MM.YYYY"),
+            "obj_renovation": st.column_config.TextColumn("Реновация"),
+            "obj_floor": st.column_config.NumberColumn("Этаж", format="%d"),
+            "obj_total_floors": st.column_config.NumberColumn("Этажность", format="%d"),
+            "obj_walls": st.column_config.TextColumn("Стены"),
+            "gift_donor_consent": st.column_config.TextColumn("Согласие дарителя"),
+            "gift_donor_registered": st.column_config.TextColumn("Даритель прописан"),
+            "gift_donor_deregister": st.column_config.TextColumn("Даритель выпишется"),
+            "cian_report_link": st.column_config.TextColumn("ЦИАН Отчет"),
+            "family_status": st.column_config.TextColumn("Сем. положение"),
+            "marriage_contract": st.column_config.TextColumn("Брачный договор"),
+            "gender": st.column_config.TextColumn("Пол"),
+            "children_count": st.column_config.NumberColumn("Дети", format="%d"),
+            "children_dates": st.column_config.TextColumn("Даты рожд. детей"),
+            "job_type": st.column_config.TextColumn("Тип работы"),
+            "job_official": st.column_config.CheckboxColumn("Офиц. труд."),
+            "job_company": st.column_config.TextColumn("Компания"),
+            "job_sphere": st.column_config.TextColumn("Сфера"),
+            "job_found_date": st.column_config.DateColumn("Дата основания", format="DD.MM.YYYY"),
+            "job_ceo": st.column_config.TextColumn("Гендиректор"),
+            "job_phone": st.column_config.TextColumn("Раб. телефон"),
+            "job_inn": st.column_config.TextColumn("ИНН Компании"),
+            "job_pos": st.column_config.TextColumn("Должность"),
+            "job_income": st.column_config.NumberColumn("Доход", format="%d"),
+            "job_start_date": st.column_config.DateColumn("Дата трудоустройства", format="DD.MM.YYYY"),
+            "job_exp": st.column_config.TextColumn("Стаж"),
+            "credit_sum": st.column_config.NumberColumn("Сумма кредита", format="%d"),
+            "loan_term": st.column_config.NumberColumn("Срок (лет)", format="%d"),
+            "has_coborrower": st.column_config.CheckboxColumn("Созаемщик"),
+            "first_pay": st.column_config.NumberColumn("ПВ", format="%d"),
+            "current_debts": st.column_config.NumberColumn("Платежи", format="%d"),
+            "assets": st.column_config.TextColumn("Активы"),
+            "is_pledged": st.column_config.CheckboxColumn("В залоге"),
+            "pledge_bank": st.column_config.TextColumn("Банк залога"),
+            "pledge_amount": st.column_config.NumberColumn("Долг залога", format="%d"),
+            "yandex_link": st.column_config.LinkColumn("Яндекс Диск"),
+            "mosgorsud_comment": st.column_config.TextColumn("МосГорСуд"),
+            "fssp_comment": st.column_config.TextColumn("ФССП"),
+            "block_comment": st.column_config.TextColumn("Блок счета"),
+        }
+    )
+    
+    if st.button("💾 Сохранить изменения"):
+        with st.spinner("Сохранение..."):
+            current_db = db.load_clients()
+            
+            # 1. Handle Deletions
+            original_ids = set(filtered_df['id'].dropna())
+            current_ids = set(edited_df['id'].dropna())
+            deleted_ids = original_ids - current_ids
+            
+            if deleted_ids:
+                current_db = current_db[~current_db['id'].isin(deleted_ids)]
+                
+            # 2. Handle Updates and New Rows
+            for index, row in edited_df.iterrows():
+                row_id = row.get('id')
+                
+                fio = str(row.get('fio', ''))
+                surname, name, patronymic = parse_fio(fio)
+                
+                if pd.isna(row_id) or row_id == "":
+                    # NEW ROW
+                    new_id = str(hash(fio + str(datetime.now())))
+                    new_row = row.to_dict()
+                    new_row['id'] = new_id
+                    new_row['surname'] = surname
+                    new_row['name'] = name
+                    new_row['patronymic'] = patronymic
+                    if pd.isna(new_row.get('created_at')):
+                        new_row['created_at'] = datetime.now().strftime('%Y-%m-%d')
+                    
+                    current_db = pd.concat([current_db, pd.DataFrame([new_row])], ignore_index=True)
+                else:
+                    # EXISTING ROW - Update
+                    mask = current_db['id'] == row_id
+                    if mask.any():
+                        for col in edited_df.columns:
+                            current_db.loc[mask, col] = row[col]
+                        # Explicitly update parsed FIO fields
+                        current_db.loc[mask, 'surname'] = surname
+                        current_db.loc[mask, 'name'] = name
+                        current_db.loc[mask, 'patronymic'] = patronymic
+            
+            db.save_all_clients(current_db)
+            st.success("✅ Изменения сохранены!")
+            st.rerun()
 
 # --- Page: Новый клиент ---
-elif page == "Новый клиент":
+# --- Page: Новый клиент ---
+with tab_new_client:
     st.header("Новый клиент")
     
     c1, c2, c3 = st.columns([2, 1, 1])
@@ -577,12 +743,18 @@ elif page == "Новый клиент":
                 yandex_link = create_yandex_folder(folder_name)
                 client_id = str(hash(fio + str(datetime.now())))
                 
+                # Parse FIO here for the new client
+                surname, name, patronymic = parse_fio(fio)
+
                 data = {
                     "id": client_id,
                     "created_at": datetime.now().strftime('%Y-%m-%d'),
                     "status": status,
                     "loan_type": loan_type,
                     "fio": fio,
+                    "surname": surname, # Added
+                    "name": name,       # Added
+                    "patronymic": patronymic, # Added
                     "gender": gender,
                     "dob": str(dob),
                     "birth_place": birth_place,
@@ -659,7 +831,8 @@ elif page == "Новый клиент":
                 st.success(f"Клиент {fio} сохранен!")
 
 # --- Page: Карточка Клиента ---
-elif page == "Карточка Клиента":
+# --- Page: Карточка Клиента ---
+with tab_client_card:
     st.title("🗂 Карточка Клиента")
     df = db.load_clients()
     if not df.empty:
@@ -671,7 +844,6 @@ elif page == "Карточка Клиента":
             with c1:
                 st.subheader(client['fio'])
                 st.write(f"**Статус:** {client['status']}")
-                st.write(f"**Телефон:** {client['phone']}")
                 st.write(f"**Яндекс Диск:** {client['yandex_link']}")
                 with st.expander("Все данные"):
                     st.write(client.to_dict())
@@ -679,7 +851,7 @@ elif page == "Карточка Клиента":
             with c2:
                 st.write("Документы")
                 # MULTIPLE FILES
-                uploaded_files = st.file_uploader("Загрузить файл", accept_multiple_files=True)
+                uploaded_files = st.file_uploader("Загрузить файл", accept_multiple_files=True, label_visibility="collapsed")
                 
                 if uploaded_files and st.button("Отправить в облако"):
                     # Check if yandex link is broken or missing
@@ -706,7 +878,8 @@ elif page == "Карточка Клиента":
                             st.warning(f"⚠️ Загружено {success_count} из {len(uploaded_files)} файлов.")
 
 # --- Page: База Банков ---
-elif page == "База Банков":
+# --- Page: База Банков ---
+with tab_bank_db:
     st.title("🏦 Банки")
     df = db.load_banks()
     st.dataframe(df)

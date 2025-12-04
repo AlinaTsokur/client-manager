@@ -7,7 +7,7 @@ DB_FILE = 'database.xlsx'
 # --- 1. СПИСКИ КОЛОНОК (ЭТАЛОН) ---
 # Мы вынесли их сюда, чтобы скрипт знал, как ДОЛЖНА выглядеть таблица
 CLIENT_COLS = [
-    "id", "created_at", "status", "loan_type", "fio", "dob", "birth_place",
+    "id", "created_at", "status", "loan_type", "fio", "surname", "name", "patronymic", "dob", "birth_place",
     "phone", "email", "passport_ser", "passport_num", "passport_issued",
     "passport_date", "kpp", "inn", "snils", "addr_index", "addr_region",
     "addr_city", "addr_street", "addr_house", "addr_korpus", "addr_structure", "addr_flat", "obj_type",
@@ -37,15 +37,27 @@ def check_and_heal_sheet(file_path, sheet_name, required_cols):
     # Ищем, каких колонок не хватает в файле
     missing = [c for c in required_cols if c not in df.columns]
     
+    # Ищем лишние колонки (которых нет в required_cols)
+    extra = [c for c in df.columns if c not in required_cols]
+    
+    changed = False
+    
+    if extra:
+        print(f"🧹 Чистим таблицу {sheet_name}. Удаляем колонки: {extra}")
+        df = df.drop(columns=extra)
+        changed = True
+    
     if missing:
         print(f"🔧 Лечим таблицу {sheet_name}. Добавляем колонки: {missing}")
         for c in missing:
             df[c] = None # Добавляем пустую колонку
+        changed = True
             
+    if changed:
         # Сохраняем обновленный файл (перезаписываем)
         # ВАЖНО: Мы сохраняем ВСЕ листы, чтобы не потерять данные
         # Поэтому этот метод вызывается внутри init_db более хитро
-        return df, True # True значит "были изменения"
+        return df, True 
     
     return df, False
 
@@ -71,9 +83,13 @@ def init_db():
                 apps_df.to_excel(writer, sheet_name='Applications', index=False)
 
 def load_sheet(sheet_name):
-    init_db() # Каждый раз перед загрузкой проверяем структуру
+    init_db() # Проверяем структуру
     try:
-        return pd.read_excel(DB_FILE, sheet_name=sheet_name)
+        df = pd.read_excel(DB_FILE, sheet_name=sheet_name)
+        # ГЛАВНОЕ ИСПРАВЛЕНИЕ:
+        # Заменяем "NaN" (пустоту-число) на None (пустоту-объект).
+        # Это лечит ошибку с красным экраном в Streamlit.
+        return df.where(pd.notnull(df), None)
     except Exception:
         return pd.DataFrame()
 
@@ -112,6 +128,17 @@ def save_bank(data):
 
 def save_application(data):
     save_entry('Applications', data)
+
+def save_all_clients(df):
+    """Перезаписывает таблицу клиентов целиком."""
+    init_db()
+    # Убеждаемся, что колонки соответствуют схеме
+    # Если в df есть лишние колонки (например Select), убираем их
+    valid_cols = [c for c in df.columns if c in CLIENT_COLS]
+    df = df[valid_cols]
+    
+    with pd.ExcelWriter(DB_FILE, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+        df.to_excel(writer, sheet_name='Clients', index=False)
 
 def delete_client(client_id):
     init_db()
