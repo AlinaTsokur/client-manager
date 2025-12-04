@@ -250,40 +250,11 @@ if page == "Рабочий стол":
 
 # --- Page: Новый клиент ---
 elif page == "Новый клиент":
-    # Layout: Header + File Upload
-    nc_c1, nc_c2 = st.columns([3, 1])
-    with nc_c1:
-        st.title("👤 Новый Клиент")
-    with nc_c2:
-        # Mini uploader - MULTIPLE FILES
-        new_client_uploads = st.file_uploader("Загрузить документы", label_visibility="collapsed", accept_multiple_files=True)
-        
-    # Header Info - Status & Loan Type
-    st.subheader("Основная информация")
-    c1, c2, c3 = st.columns(3)
-    fio = c1.text_input("ФИО")
+    st.header("Новый клиент")
     
-    # Handle upload immediately if FIO exists
-    if new_client_uploads:
-        if fio:
-            folder_name = f"{fio}_{datetime.now().strftime('%Y-%m-%d')}"
-            with st.spinner(f"⏳ Загрузка {len(new_client_uploads)} файлов..."):
-                # Ensure folder exists once
-                create_yandex_folder(folder_name) 
-                
-                success_count = 0
-                for uploaded_file in new_client_uploads:
-                    if upload_to_yandex(uploaded_file, folder_name, uploaded_file.name):
-                        success_count += 1
-                
-                if success_count == len(new_client_uploads):
-                    st.toast(f"✅ Все файлы ({success_count}) загружены!", icon=None)
-                else:
-                    st.warning(f"⚠️ Загружено {success_count} из {len(new_client_uploads)} файлов.")
-        else:
-            st.warning("⚠️ Введите ФИО, чтобы загрузить файлы.")
-
-    status = c2.selectbox("Статус", ["Новый", "В работе", "Одобрен", "Сделка", "Отказ"], index=None, placeholder="Выберите статус...")
+    c1, c2, c3 = st.columns([2, 1, 1])
+    fio = c1.text_input("ФИО")
+    status = c2.selectbox("Статус", ["Новый", "В работе", "Одобрен", "Сделка", "Отказ", "Архив"], index=None, placeholder="Выберите статус...")
     loan_type = c3.selectbox("Тип заявки", ["Ипотека", "Залог"], index=None, placeholder="Выберите тип...")
     
     c4, c5, c6 = st.columns(3)
@@ -708,7 +679,7 @@ elif page == "Карточка Клиента":
             with c2:
                 st.write("Документы")
                 # MULTIPLE FILES
-                uploaded_files = st.file_uploader("Загрузить файл", accept_multiple_files=True, label_visibility="collapsed")
+                uploaded_files = st.file_uploader("Загрузить файл", accept_multiple_files=True)
                 
                 if uploaded_files and st.button("Отправить в облако"):
                     # Check if yandex link is broken or missing
