@@ -6,6 +6,7 @@ import database as db
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 import time
+from streamlit_searchbox import st_searchbox
 
 # --- Configuration ---
 YANDEX_TOKEN = "y0__xCF7vSyBhj0hTwg2oaewBUWNr9rdgvFpxw2k559OGkSU4o9VA"
@@ -106,6 +107,45 @@ def formatted_phone_input(label, key, value=None):
 
     st.text_input(label, key=key, on_change=on_change)
     return st.session_state[key]
+
+
+
+def format_phone_string(phone_str):
+    """Formats a phone string to +7 XXX XXX XX XX"""
+    if not phone_str:
+        return ""
+    
+    # Remove all non-digits
+    clean = ''.join(c for c in str(phone_str) if c.isdigit())
+    
+    # Handle empty
+    if not clean:
+        return ""
+        
+    # If starts with 8, replace with 7
+    if clean.startswith('8'):
+        clean = '7' + clean[1:]
+    # If doesn't start with 7 and len is 10, prepend 7
+    elif len(clean) == 10 and not clean.startswith('7'):
+        clean = '7' + clean
+    # If just digits, ensure input starts with 7 if it looks like a RU number (10 or 11 digits)
+    elif len(clean) == 11 and not clean.startswith('7'):
+         pass
+
+    # Normalize to 11 chars beginning with 7 if possible
+    if len(clean) == 10:
+        clean = '7' + clean
+    
+    # Formatting
+    # Expected: 79998887766 -> +7 999 888 77 66
+    if len(clean) >= 11 and clean.startswith('7'):
+        # Take first 11 only
+        digits = clean[:11]
+        return f"+7 {digits[1:4]} {digits[4:7]} {digits[7:9]} {digits[9:11]}"
+    
+    # Fallback for weird numbers (like short ones or other countries if any)
+    # But try to add + if missing
+    return phone_str if phone_str else ""
 
 
 # Helper function to parse FIO
@@ -486,7 +526,7 @@ def render_client_form(client_data=None, key_prefix=""):
         pd_r2_5.markdown("<div style='padding-top: 28px;'><a href='https://service.nalog.ru/inn.do' target='_blank' style='text-decoration: none; font-size: 20px;'>🔍</a></div>", unsafe_allow_html=True)
         
         # Row 3: Marital Status, Children, Marriage Contract
-        pd_r3_1, pd_r3_2, pd_r3_3 = st.columns(3)
+        pd_r3_1, pd_r3_2, pd_r3_3 = st.columns([0.9, 1.1, 2.2])
         family = pd_r3_1.selectbox("Семейное положение", ["Холост/Не замужем", "Женат/Замужем", "Разведен(а)", "Вдовец/Вдова"], index=["Холост/Не замужем", "Женат/Замужем", "Разведен(a)", "Вдовец/Вдова"].index(default_family) if default_family else None, placeholder="Выберите...", key=f"{key_prefix}family")
         children_count = pd_r3_2.number_input("Кол-во несовершеннолетних детей", 0, 10, value=default_children_count, key=f"{key_prefix}children_count")
         marriage_contract = pd_r3_3.radio("Наличие брачного договора / нотариального согласия", ["Брачный контракт", "Нотариальное согласие", "Нет"], horizontal=True, index=["Брачный контракт", "Нотариальное согласие", "Нет"].index(default_marriage_contract) if default_marriage_contract else None, key=f"{key_prefix}marriage_contract")
@@ -913,11 +953,11 @@ elif selected_page == "База Клиентов":
         # Filters
         col1, col2, col3 = st.columns(3)
         with col1:
-            status_filter = st.multiselect("Фильтр по статусу", options=df["status"].unique() if not df.empty else [])
+            status_filter = st.multiselect("Фильтр по статусу", options=df["status"].unique() if not df.empty else [], placeholder="Выберите статус", label_visibility="collapsed")
         with col2:
-            loan_type_filter = st.multiselect("Фильтр по типу", options=["Ипотека", "Залог"])
+            loan_type_filter = st.multiselect("Фильтр по типу", options=["Ипотека", "Залог"], placeholder="Выберите тип сделки", label_visibility="collapsed")
         with col3:
-            search = st.text_input("Поиск по ФИО")
+            search = st.text_input("Поиск по ФИО", placeholder="Введите ФИО", label_visibility="collapsed")
             
         filtered_df = df.copy()
         if status_filter:
@@ -1001,7 +1041,25 @@ elif selected_page == "Карточка Клиента":
     df = db.load_clients()
     if not df.empty:
         c_sel, _ = st.columns([1, 2])
-        selected_name = c_sel.selectbox("Выберите клиента", df["fio"].tolist())
+        with c_sel:
+            # st_searchbox for autocomplete
+            all_clients_list = sorted(df["fio"].unique().tolist())
+            
+            def search_clients(searchterm: str):
+                if not searchterm:
+                    return []
+                return [
+                    name for name in all_clients_list
+                    if str(name).lower().startswith(searchterm.lower())
+                ]
+
+            selected_name = st_searchbox(
+                search_clients,
+                key="client_searchbox",
+                placeholder="Начните вводить ФИО...",
+                label="Поиск клиента",
+                style_overrides={"noOptionsMessage": {"display": "none"}}
+            )
         if selected_name:
             client = df[df["fio"] == selected_name].iloc[0].to_dict()
             
@@ -1093,11 +1151,35 @@ elif selected_page == "База Банков":
         key="bank_editor"
     )
     
-    # Save button for table edits
-    if st.button("💾 Сохранить изменения"):
+    # Save button row
+    # Save button row
+    save_col, msg_col, _ = st.columns([1, 1, 3])
+    with save_col:
+        save_clicked = st.button("💾 Сохранить изменения")
+        
+    if save_clicked:
+        # Apply phone formatting to manually edited rows before saving
+        if "manager_phone" in edited_df.columns:
+            edited_df["manager_phone"] = edited_df["manager_phone"].apply(format_phone_string)
+            
         # Use bulk save to handle deletions and avoid duplicates
         db.save_all_banks(edited_df)
-        st.success("Банки сохранены")
+        with msg_col:
+            st.markdown(
+                """
+                <div style="
+                    color: #0f5132;
+                    padding: 0.1rem 0;
+                    text-align: left;
+                    font-size: 1rem;
+                    line-height: 1.6;
+                    margin-top: 0.2rem;
+                ">
+                    ✅ Банки сохранены
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
     
     # st.divider() - Removed by user request
     st.subheader("Добавить новый банк")
