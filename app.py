@@ -249,11 +249,20 @@ if 'migration_done' not in st.session_state:
 
 # --- Top Navigation ---
 # Use radio for navigation to allow programmatic switching via session state
+# Sync with query params for persistence across refreshes
+
+# 1. Initialize session state from query params if not set
 if "page" not in st.session_state:
-    st.session_state.page = "Новый клиент"
+    query_params = st.query_params
+    query_page = query_params.get("page")
+    if query_page and query_page in ["Новый клиент", "Карточка Клиента", "База Клиентов", "База Банков"]:
+        st.session_state.page = query_page
+    else:
+        st.session_state.page = "Новый клиент"
 
 def navigate_to(page):
     st.session_state.page = page
+    st.query_params["page"] = page
 
 # Top Menu
 pages = ["Новый клиент", "Карточка Клиента", "База Клиентов", "База Банков"]
@@ -261,6 +270,10 @@ if st.session_state.page not in pages:
     st.session_state.page = "Новый клиент"
 
 current_index = pages.index(st.session_state.page)
+
+# Update query param initially (if just started)
+if st.query_params.get("page") != st.session_state.page:
+    st.query_params["page"] = st.session_state.page
 
 selected_page = st.radio(
     "Меню", 
@@ -272,6 +285,7 @@ selected_page = st.radio(
 
 if selected_page != st.session_state.page:
     st.session_state.page = selected_page
+    st.query_params["page"] = selected_page
     st.rerun()
 
 # Helper function to render the client form (for both new and edit)
@@ -431,7 +445,7 @@ def render_client_form(client_data=None, key_prefix=""):
         with p_c3:
             pledge_amount = formatted_number_input("Сумма текущего долга", f"{key_prefix}pledge_amount_input", value=default_pledge_amount)
     
-    st.divider()
+
     
     tab1, tab2, tab3 = st.tabs(["Личные данные", "Финансы", "Залог"])
     
@@ -447,11 +461,11 @@ def render_client_form(client_data=None, key_prefix=""):
         
         # Row 2: Phone, Email
         # Row 2: Phone, Email, SNILS, INN
-        pd_r2_1, pd_r2_2, pd_r2_3, pd_r2_4, pd_r2_5 = st.columns([1, 1.5, 1, 1, 0.2])
+        pd_r2_1, pd_r2_2, pd_r2_3, pd_r2_4, pd_r2_5 = st.columns([1, 2, 0.7, 0.7, 0.2])
         with pd_r2_1:
             phone = formatted_phone_input("Телефон", f"{key_prefix}phone_input", value=default_phone)
         with pd_r2_2:
-            em_c1, em_c2 = st.columns([2, 1])
+            em_c1, em_c2 = st.columns([1.5, 1])
             email_user_part = default_email.split('@')[0] if '@' in default_email else default_email
             email_domain_part = '@' + default_email.split('@')[1] if '@' in default_email else None
             
@@ -946,6 +960,10 @@ elif selected_page == "База Клиентов":
                 deleted_ids = original_ids - current_ids
                 
                 if deleted_ids:
+                    # Ensure current_db IDs are strings for comparison
+                    current_db['id'] = current_db['id'].astype(str)
+                    # Also ensure deleted_ids are strings (they should be, but to be safe)
+                    deleted_ids = set(str(uid) for uid in deleted_ids)
                     current_db = current_db[~current_db['id'].isin(deleted_ids)]
                     
                 # Handle Updates
@@ -982,11 +1000,12 @@ elif selected_page == "Карточка Клиента":
     st.title("🗂 Карточка Клиента")
     df = db.load_clients()
     if not df.empty:
-        selected_name = st.selectbox("Выберите клиента", df["fio"].tolist())
+        c_sel, _ = st.columns([1, 2])
+        selected_name = c_sel.selectbox("Выберите клиента", df["fio"].tolist())
         if selected_name:
             client = df[df["fio"] == selected_name].iloc[0].to_dict()
             
-            st.subheader(f"Редактирование: {client['fio']}")
+
             st.write(f"**Яндекс Диск:** {client.get('yandex_link', 'Нет ссылки')}")
             
             # EDIT BUTTON
@@ -1027,19 +1046,87 @@ elif selected_page == "Карточка Клиента":
 elif selected_page == "База Банков":
     st.title("🏦 Банки")
     df = db.load_banks()
-    st.dataframe(df)
+    if not df.empty:
+        # Pre-process: ensure text columns are strings (not float/NaN) to satisfy st.data_editor
+        # Also ensure new columns exist if DB migration didn't happen yet
+        for new_col in ["email2", "email3"]:
+            if new_col not in df.columns:
+                df[new_col] = ""
+
+        for col in df.columns:
+            if col != "id": # Keep ID as is or also str
+                 val = df[col].astype(str).replace("nan", "").replace("None", "")
+                 df[col] = val.apply(lambda x: x[:-2] if x.endswith(".0") else x)
+        
+        # Reorder columns: Name, Manager, Phone, Email, Email2, Email3, Address, ID
+        desired_order = ["name", "manager_fio", "manager_phone", "manager_email", "email2", "email3", "address", "id"]
+        # Ensure all cols exist (just in case)
+        existing_cols = [c for c in desired_order if c in df.columns]
+        # Append any other cols that might be there
+        remaining_cols = [c for c in df.columns if c not in existing_cols]
+        df = df[existing_cols + remaining_cols]
+
+    # Filters
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        name_filter = st.multiselect("Фильтр по названию", options=df["name"].unique() if not df.empty else [], placeholder="Введите название банка", label_visibility="collapsed")
     
-    with st.form("new_bank"):
+    filtered_df = df.copy()
+    if name_filter:
+        filtered_df = filtered_df[filtered_df["name"].isin(name_filter)]
+
+    # Use Data Editor for Banks too
+    edited_df = st.data_editor(
+        filtered_df,
+        num_rows="dynamic",
+        use_container_width=True,
+        column_config={
+            "id": st.column_config.TextColumn("ID", disabled=True),
+            "name": st.column_config.TextColumn("Название"),
+            "address": st.column_config.TextColumn("Адрес"),
+            "manager_fio": st.column_config.TextColumn("Менеджер"),
+            "manager_email": st.column_config.TextColumn("Email"),
+            "email2": st.column_config.TextColumn("Email 2"),
+            "email3": st.column_config.TextColumn("Email 3"),
+            "manager_phone": st.column_config.TextColumn("Телефон"),
+        },
+        key="bank_editor"
+    )
+    
+    # Save button for table edits
+    if st.button("💾 Сохранить изменения"):
+        # Use bulk save to handle deletions and avoid duplicates
+        db.save_all_banks(edited_df)
+        st.success("Банки сохранены")
+    
+    # st.divider() - Removed by user request
+    st.subheader("Добавить новый банк")
+    r1_c1, r1_c2, r1_c3, r1_c4 = st.columns(4)
+    with r1_c1:
         b_name = st.text_input("Название")
+    with r1_c2:
         b_addr = st.text_input("Адрес")
+    with r1_c3:
         b_man = st.text_input("Менеджер")
+    with r1_c4:
+        b_tel = formatted_phone_input("Телефон", "bank_new_phone")
+        
+    r2_c1, r2_c2, r2_c3 = st.columns(3)
+    with r2_c1:
         b_mail = st.text_input("Email")
-        b_tel = st.text_input("Телефон")
-        if st.form_submit_button("Добавить"):
-            db.save_bank({
-                "name": b_name, "address": b_addr, 
-                "manager_fio": b_man, "manager_email": b_mail, 
-                "manager_phone": b_tel
-            })
-            st.success("Банк добавлен")
-            st.rerun()
+    with r2_c2:
+        b_mail2 = st.text_input("Email 2")
+    with r2_c3:
+        b_mail3 = st.text_input("Email 3")
+
+    if st.button("Добавить", type="primary"):
+        new_id = str(hash(b_name + str(datetime.now())))
+        db.save_bank({
+            "id": new_id,
+            "name": b_name, "address": b_addr, 
+            "manager_fio": b_man, "manager_email": b_mail,
+            "email2": b_mail2, "email3": b_mail3, 
+            "manager_phone": b_tel
+        })
+        st.success("Банк добавлен")
+        st.rerun()

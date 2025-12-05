@@ -23,7 +23,7 @@ CLIENT_COLS = [
     "pledge_bank", "pledge_amount", "yandex_link", "mosgorsud_comment", "fssp_comment", "block_comment"
 ]
 
-BANK_COLS = ["id", "name", "address", "manager_fio", "manager_email", "manager_phone"]
+BANK_COLS = ["name", "manager_fio", "manager_phone", "manager_email", "email2", "email3", "address", "id"]
 APP_COLS = ["id", "client_id", "client_fio", "bank", "date_submitted", "status", "approved_sum", "comment"]
 
 def check_and_heal_sheet(file_path, sheet_name, required_cols):
@@ -139,6 +139,25 @@ def save_all_clients(df):
     
     with pd.ExcelWriter(DB_FILE, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
         df.to_excel(writer, sheet_name='Clients', index=False)
+
+def save_all_banks(df):
+    """Перезаписывает таблицу банков целиком."""
+    init_db()
+    # Valid cols check
+    valid_cols = [c for c in df.columns if c in BANK_COLS]
+    # Ensure ID column exists
+    if 'id' not in df.columns:
+        df['id'] = [str(hash(str(row))) for row in df.itertuples()]
+    
+    # Fill missing IDs if any (for existing rows that had None)
+    # We can use a simple counter or hash
+    if not df.empty:
+        df['id'] = df.apply(lambda row: row['id'] if (pd.notnull(row.get('id')) and str(row.get('id')) != '' and str(row.get('id')) != 'None') else str(hash(str(row.name) + str(datetime.now()))), axis=1)
+    
+    df = df[valid_cols]
+    
+    with pd.ExcelWriter(DB_FILE, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+        df.to_excel(writer, sheet_name='Banks', index=False)
 
 def delete_client(client_id):
     init_db()
