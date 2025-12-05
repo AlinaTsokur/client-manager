@@ -15,7 +15,7 @@ TEMPLATES_DIR = 'templates'
 # Helper function for formatted number input
 def formatted_number_input(label, key, allow_float=False, value=None):
     if key not in st.session_state:
-        if value is not None:
+        if value is not None and (isinstance(value, (int, float)) and value > 0):
             # Initialize with provided value
             if allow_float:
                 st.session_state[key] = f"{value:,}".replace(",", " ")
@@ -374,38 +374,45 @@ def render_client_form(client_data=None, key_prefix=""):
         else:
             copy_addr_val = "Да"
     
-    c1, c2, c3 = st.columns([2, 1, 1])
+    # Row 1: FIO, Status, Loan Type, Credit Sum
+    c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
     fio = c1.text_input("ФИО", value=default_fio, key=f"{key_prefix}fio")
     status = c2.selectbox("Статус", ["Новый", "В работе", "Одобрен", "Сделка", "Отказ", "Архив"], index=["Новый", "В работе", "Одобрен", "Сделка", "Отказ", "Архив"].index(default_status) if default_status else None, placeholder="Выберите статус...", key=f"{key_prefix}status")
     loan_type = c3.selectbox("Тип заявки", ["Ипотека", "Залог"], index=["Ипотека", "Залог"].index(default_loan_type) if default_loan_type else None, placeholder="Выберите тип...", key=f"{key_prefix}loan_type")
     
-    c4, c5, c6 = st.columns(3)
     with c4:
         credit_sum = formatted_number_input("Требуемая сумма кредита", f"{key_prefix}credit_sum_input", value=default_credit_sum)
+
+    # Row 2: Object Price (with button), LTV, CIAN Report, First Pay
+    # We need to get obj_price first to calculate LTV, but LTV is displayed in the same row.
+    # Streamlit runs top-to-bottom. We can render inputs, get their values, and then calculate LTV.
+    # But LTV display depends on obj_price and credit_sum which are inputs.
+    # In Streamlit, values from current run are available.
     
-    with c5:
+    r2_c1, r2_c2, r2_c3, r2_c4 = st.columns([1.2, 1, 1, 1])
+    
+    with r2_c1:
         op_cols = st.columns([0.85, 0.15])
         with op_cols[0]:
             obj_price = formatted_number_input("Стоимость объекта", f"{key_prefix}obj_price_input", value=default_obj_price)
-        op_cols[1].markdown("<br>", unsafe_allow_html=True)
-        op_cols[1].link_button("🧮", "https://www.cian.ru/kalkulator-nedvizhimosti/", help="Калькулятор недвижимости")
+        op_cols[1].markdown("<div style='padding-top: 28px;'><a href='https://www.cian.ru/kalkulator-nedvizhimosti/' target='_blank' style='text-decoration: none; font-size: 20px;'>🧮</a></div>", unsafe_allow_html=True)
+
+    ltv_val = 0.0
+    # print(f"DEBUG: credit_sum={credit_sum}, obj_price={obj_price}")
+    if obj_price > 0:
+        ltv_val = (credit_sum / obj_price) * 100
+    # print(f"DEBUG: ltv_val={ltv_val}")
+        
+    with r2_c2:
+        st.text_input("КЗ (Коэффициент Залога)", value=f"{ltv_val:.1f}%", disabled=True)
+        
+    with r2_c3:
+        cian_report_link = st.text_input("Отчет об оценке ЦИАН", value=default_cian_report_link, key=f"{key_prefix}cian_report_link")
         
     first_pay = 0.0
     if loan_type == "Ипотека":
-        with c6:
+        with r2_c4:
             first_pay = formatted_number_input("Первоначальный взнос", f"{key_prefix}first_pay_input", value=default_first_pay)
-            
-    # LTV and CIAN Report Row
-    # LTV left, CIAN right (same row)
-    ltv_val = 0.0
-    if obj_price > 0:
-        ltv_val = (credit_sum / obj_price) * 100
-        
-    r2_c1, r2_c2, r2_c3 = st.columns(3)
-    with r2_c1:
-        st.text_input("КЗ (Коэффициент Залога)", value=f"{ltv_val:.1f}%", disabled=True, key=f"{key_prefix}ltv_display")
-    with r2_c2:
-        cian_report_link = st.text_input("Отчет об оценке ЦИАН", value=default_cian_report_link, key=f"{key_prefix}cian_report_link")
     
     # Pledge Logic
     # Inline: Is Pledged? | Bank | Amount
@@ -439,9 +446,9 @@ def render_client_form(client_data=None, key_prefix=""):
         birth_place = pd_r1_3.text_input("Место рождения", value=default_birth_place, key=f"{key_prefix}birth_place")
         
         # Row 2: Phone, Email
-        pd_r2_1, pd_r2_2 = st.columns(2)
+        # Row 2: Phone, Email, SNILS, INN
+        pd_r2_1, pd_r2_2, pd_r2_3, pd_r2_4, pd_r2_5 = st.columns([1, 1.5, 1, 1, 0.2])
         with pd_r2_1:
-
             phone = formatted_phone_input("Телефон", f"{key_prefix}phone_input", value=default_phone)
         with pd_r2_2:
             em_c1, em_c2 = st.columns([2, 1])
@@ -460,6 +467,10 @@ def render_client_form(client_data=None, key_prefix=""):
             else:
                 email = email_user
         
+        snils = pd_r2_3.text_input("СНИЛС", value=default_snils, key=f"{key_prefix}snils")
+        inn = pd_r2_4.text_input("ИНН", value=default_inn, key=f"{key_prefix}inn")
+        pd_r2_5.markdown("<div style='padding-top: 28px;'><a href='https://service.nalog.ru/inn.do' target='_blank' style='text-decoration: none; font-size: 20px;'>🔍</a></div>", unsafe_allow_html=True)
+        
         # Row 3: Marital Status, Children, Marriage Contract
         pd_r3_1, pd_r3_2, pd_r3_3 = st.columns(3)
         family = pd_r3_1.selectbox("Семейное положение", ["Холост/Не замужем", "Женат/Замужем", "Разведен(а)", "Вдовец/Вдова"], index=["Холост/Не замужем", "Женат/Замужем", "Разведен(a)", "Вдовец/Вдова"].index(default_family) if default_family else None, placeholder="Выберите...", key=f"{key_prefix}family")
@@ -477,13 +488,12 @@ def render_client_form(client_data=None, key_prefix=""):
         
         st.divider()
         st.subheader("Паспорт")
-        p1, p2, p3, p4 = st.columns(4)
+        p1, p2, p3, p4, p5 = st.columns([1, 1, 1, 3, 1])
         pass_ser = p1.text_input("Серия", value=default_pass_ser, key=f"{key_prefix}pass_ser")
         pass_num = p2.text_input("Номер", value=default_pass_num, key=f"{key_prefix}pass_num")
         pass_code = p3.text_input("Код подразделения", value=default_pass_code, key=f"{key_prefix}pass_code")
-        pass_date = p4.date_input("Дата выдачи", min_value=datetime(1990, 1, 1).date(), max_value=max_date, value=default_pass_date, key=f"{key_prefix}pass_date")
-        
-        pass_issued = st.text_input("Кем выдан", value=default_pass_issued, key=f"{key_prefix}pass_issued")
+        pass_issued = p4.text_input("Кем выдан", value=default_pass_issued, key=f"{key_prefix}pass_issued")
+        pass_date = p5.date_input("Дата выдачи", min_value=datetime(1990, 1, 1).date(), max_value=max_date, value=default_pass_date, key=f"{key_prefix}pass_date")
         
         st.subheader("Адрес регистрации")
         a1, a2, a3, a4 = st.columns([1, 0.2, 1, 1])
@@ -499,15 +509,7 @@ def render_client_form(client_data=None, key_prefix=""):
         addr_structure = a8.text_input("Строение")
         addr_flat = a9.text_input("Квартира")
         
-        st.divider()
-        d1, d2 = st.columns(2)
-        snils = d1.text_input("СНИЛС")
-        
-        with d2:
-            inn_cols = st.columns([0.85, 0.15])
-            inn = inn_cols[0].text_input("ИНН")
-            inn_cols[1].markdown("<br>", unsafe_allow_html=True) # Spacer to align with input
-            inn_cols[1].link_button("🔍", "https://service.nalog.ru/inn.do", help="Узнать/Проверить ИНН")
+
         
     with tab2:
         st.subheader("Работа")
@@ -632,12 +634,12 @@ def render_client_form(client_data=None, key_prefix=""):
         if own_doc_type == "Другое":
             own_doc_type = o_row1_2.text_input("Впишите документ")
         elif own_doc_type == "Договор дарения":
-            st.info("Дополнительные вопросы по дарению:")
-            g1, g2 = st.columns(2)
-            gift_donor_consent = g1.radio("Есть ли согласие дарителя?", ["Да", "Нет"], horizontal=True, index=None)
-            gift_donor_registered = g2.radio("Прописан ли даритель?", ["Да", "Нет"], horizontal=True, index=None)
+            g1, g2, g3 = st.columns(3)
+            gift_donor_consent = g1.radio("Есть ли согласие дарителя?", ["Да", "Нет"], horizontal=True, index=["Да", "Нет"].index(default_gift_donor_consent) if default_gift_donor_consent else None, key=f"{key_prefix}gift_donor_consent")
+            gift_donor_registered = g2.radio("Прописан ли даритель?", ["Да", "Нет"], horizontal=True, index=["Да", "Нет"].index(default_gift_donor_registered) if default_gift_donor_registered else None, key=f"{key_prefix}gift_donor_registered")
+            
             if gift_donor_registered == "Да":
-                gift_donor_deregister = st.radio("Готов ли он выписаться?", ["Да", "Нет"], horizontal=True, index=None)
+                gift_donor_deregister = g3.radio("Готов ли он выписаться?", ["Да", "Нет"], horizontal=True, index=["Да", "Нет"].index(default_gift_donor_deregister) if default_gift_donor_deregister else None, key=f"{key_prefix}gift_donor_deregister")
             
         obj_date = o_row1_3.date_input("Дата правоустановки", min_value=min_date, max_value=max_date, value=None)
         
@@ -895,15 +897,19 @@ elif selected_page == "База Клиентов":
                 df[col] = val.apply(lambda x: x[:-2] if x.endswith(".0") else x)
         
         # Filters
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         with col1:
             status_filter = st.multiselect("Фильтр по статусу", options=df["status"].unique() if not df.empty else [])
         with col2:
+            loan_type_filter = st.multiselect("Фильтр по типу", options=["Ипотека", "Залог"])
+        with col3:
             search = st.text_input("Поиск по ФИО")
             
         filtered_df = df.copy()
         if status_filter:
             filtered_df = filtered_df[filtered_df["status"].isin(status_filter)]
+        if loan_type_filter:
+            filtered_df = filtered_df[filtered_df["loan_type"].isin(loan_type_filter)]
         if search:
             filtered_df = filtered_df[filtered_df["fio"].str.contains(search, case=False, na=False)]
             
@@ -922,6 +928,11 @@ elif selected_page == "База Клиентов":
                 "fio": st.column_config.TextColumn("ФИО"),
                 "credit_sum": st.column_config.NumberColumn("Сумма", format="%d"),
                 "phone": st.column_config.TextColumn("Телефон"),
+                "dob": st.column_config.DateColumn("Дата рождения", format="YYYY-MM-DD"),
+                "passport_date": st.column_config.DateColumn("Дата выдачи паспорта", format="YYYY-MM-DD"),
+                "obj_date": st.column_config.DateColumn("Дата собственности", format="YYYY-MM-DD"),
+                "job_found_date": st.column_config.DateColumn("Дата основания", format="YYYY-MM-DD"),
+                "job_start_date": st.column_config.DateColumn("Дата начала работы", format="YYYY-MM-DD"),
             }
         )
         
