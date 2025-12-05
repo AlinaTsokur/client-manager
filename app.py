@@ -5,6 +5,7 @@ import os
 import database as db
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
+import time
 
 # --- Configuration ---
 YANDEX_TOKEN = "y0__xCF7vSyBhj0hTwg2oaewBUWNr9rdgvFpxw2k559OGkSU4o9VA"
@@ -12,9 +13,16 @@ FONTS_DIR = 'fonts'
 TEMPLATES_DIR = 'templates'
 
 # Helper function for formatted number input
-def formatted_number_input(label, key, allow_float=False):
+def formatted_number_input(label, key, allow_float=False, value=None):
     if key not in st.session_state:
-        st.session_state[key] = ""
+        if value is not None:
+            # Initialize with provided value
+            if allow_float:
+                st.session_state[key] = f"{value:,}".replace(",", " ")
+            else:
+                st.session_state[key] = f"{int(value):,}".replace(",", " ")
+        else:
+            st.session_state[key] = ""
         
     def on_change():
         val = st.session_state[key]
@@ -58,9 +66,12 @@ def formatted_number_input(label, key, allow_float=False):
         clean = ''.join(c for c in val if c.isdigit())
         return int(clean) if clean else 0
 
-def formatted_phone_input(label, key):
+def formatted_phone_input(label, key, value=None):
     if key not in st.session_state:
-        st.session_state[key] = ""
+        if value:
+            st.session_state[key] = value
+        else:
+            st.session_state[key] = ""
         
     def on_change():
         val = st.session_state[key]
@@ -237,207 +248,152 @@ if 'migration_done' not in st.session_state:
     st.session_state['migration_done'] = True
 
 # --- Top Navigation ---
-tab_desktop, tab_new_client, tab_client_card, tab_bank_db = st.tabs(["Рабочий стол", "Новый клиент", "Карточка Клиента", "База Банков"])
+# Use radio for navigation to allow programmatic switching via session state
+if "page" not in st.session_state:
+    st.session_state.page = "Новый клиент"
 
-# --- Page: Рабочий стол ---
-# --- Page: Рабочий стол ---
-with tab_desktop:
-    st.title("📋 База Клиентов")
-    df = db.load_clients()
-    
-    # Ensure date columns are datetime objects to avoid StreamlitAPIException
-    date_cols = ["dob", "created_at", "passport_date", "job_date", "job_start_date", "job_found_date", "obj_date"]
-    for col in date_cols:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors='coerce')
-            # Replace NaT with None (Streamlit requires None for empty dates, not NaT)
-            df[col] = df[col].astype(object).where(df[col].notnull(), None)
+def navigate_to(page):
+    st.session_state.page = page
 
-    # Force all other columns to string if they are not numeric/date, to avoid float inference for empty cols
-    # This fixes "configured column type text ... not compatible ... FLOAT"
-    numeric_cols = ["credit_sum", "obj_price", "first_pay", "current_debts", "pledge_amount", "job_income", "obj_area", "obj_floor", "obj_total_floors", "children_count", "loan_term"]
-    
-    for col in df.columns:
-        if col not in date_cols and col not in numeric_cols and col != "Select":
-            # Treat as text
-            # Also clean "123.0" -> "123" artifacts for identifiers
-            val = df[col].astype(str).replace("nan", "").replace("None", "")
-            # If it ends with .0, remove it (simple heuristic for identifiers like passport, inn)
-            df[col] = val.apply(lambda x: x[:-2] if x.endswith(".0") else x)
-    
-    # Filters
-    col1, col2 = st.columns(2)
-    with col1:
-        status_filter = st.multiselect("Фильтр по статусу", options=df["status"].unique() if not df.empty else [])
-    with col2:
-        search = st.text_input("Поиск по ФИО")
-        
-    filtered_df = df.copy()
-    if status_filter:
-        filtered_df = filtered_df[filtered_df["status"].isin(status_filter)]
-    if search:
-        filtered_df = filtered_df[filtered_df["fio"].str.contains(search, case=False, na=False)]
-        
-    # Data Editor
-    edited_df = st.data_editor(
-        filtered_df,
-        num_rows="dynamic",
-        disabled=["id", "created_at", "surname", "name", "patronymic"],
-        key="client_editor",
-        use_container_width=True,
-        column_config={
-            "id": st.column_config.TextColumn("ID", disabled=True),
-            "created_at": st.column_config.DateColumn("Создан", format="YYYY-MM-DD", disabled=True),
-            "status": st.column_config.SelectboxColumn("Статус", options=["Новый", "В работе", "Одобрен", "Сделка", "Отказ", "Архив"]),
-            "loan_type": st.column_config.SelectboxColumn("Тип", options=["Ипотека", "Залог"]),
-            "fio": st.column_config.TextColumn("ФИО"),
-            "surname": st.column_config.TextColumn("Фамилия"),
-            "name": st.column_config.TextColumn("Имя"),
-            "patronymic": st.column_config.TextColumn("Отчество"),
-            "dob": st.column_config.DateColumn("Дата рождения", format="DD.MM.YYYY"),
-            "birth_place": st.column_config.TextColumn("Место рождения"),
-            "phone": st.column_config.TextColumn("Телефон"),
-            "email": st.column_config.TextColumn("Email"),
-            "passport_ser": st.column_config.TextColumn("Паспорт Серия"),
-            "passport_num": st.column_config.TextColumn("Паспорт Номер"),
-            "passport_issued": st.column_config.TextColumn("Кем выдан"),
-            "passport_date": st.column_config.DateColumn("Дата выдачи", format="DD.MM.YYYY"),
-            "kpp": st.column_config.TextColumn("Код подр."),
-            "inn": st.column_config.TextColumn("ИНН"),
-            "snils": st.column_config.TextColumn("СНИЛС"),
-            "addr_index": st.column_config.TextColumn("Индекс (Рег)"),
-            "addr_region": st.column_config.TextColumn("Регион (Рег)"),
-            "addr_city": st.column_config.TextColumn("Город (Рег)"),
-            "addr_street": st.column_config.TextColumn("Улица (Рег)"),
-            "addr_house": st.column_config.TextColumn("Дом (Рег)"),
-            "addr_korpus": st.column_config.TextColumn("Корпус (Рег)"),
-            "addr_structure": st.column_config.TextColumn("Строение (Рег)"),
-            "addr_flat": st.column_config.TextColumn("Кв (Рег)"),
-            "obj_type": st.column_config.TextColumn("Тип объекта"),
-            "obj_index": st.column_config.TextColumn("Индекс (Объект)"),
-            "obj_region": st.column_config.TextColumn("Регион (Объект)"),
-            "obj_city": st.column_config.TextColumn("Город (Объект)"),
-            "obj_street": st.column_config.TextColumn("Улица (Объект)"),
-            "obj_house": st.column_config.TextColumn("Дом (Объект)"),
-            "obj_korpus": st.column_config.TextColumn("Корпус (Объект)"),
-            "obj_structure": st.column_config.TextColumn("Строение (Объект)"),
-            "obj_flat": st.column_config.TextColumn("Кв (Объект)"),
-            "obj_area": st.column_config.NumberColumn("Площадь", format="%.1f"),
-            "obj_price": st.column_config.NumberColumn("Стоимость объекта", format="%d"),
-            "obj_doc_type": st.column_config.TextColumn("Документ основания"),
-            "obj_date": st.column_config.DateColumn("Дата основания", format="DD.MM.YYYY"),
-            "obj_renovation": st.column_config.TextColumn("Реновация"),
-            "obj_floor": st.column_config.NumberColumn("Этаж", format="%d"),
-            "obj_total_floors": st.column_config.NumberColumn("Этажность", format="%d"),
-            "obj_walls": st.column_config.TextColumn("Стены"),
-            "gift_donor_consent": st.column_config.TextColumn("Согласие дарителя"),
-            "gift_donor_registered": st.column_config.TextColumn("Даритель прописан"),
-            "gift_donor_deregister": st.column_config.TextColumn("Даритель выпишется"),
-            "cian_report_link": st.column_config.TextColumn("ЦИАН Отчет"),
-            "family_status": st.column_config.TextColumn("Сем. положение"),
-            "marriage_contract": st.column_config.TextColumn("Брачный договор"),
-            "gender": st.column_config.TextColumn("Пол"),
-            "children_count": st.column_config.NumberColumn("Дети", format="%d"),
-            "children_dates": st.column_config.TextColumn("Даты рожд. детей"),
-            "job_type": st.column_config.TextColumn("Тип работы"),
-            "job_official": st.column_config.CheckboxColumn("Офиц. труд."),
-            "job_company": st.column_config.TextColumn("Компания"),
-            "job_sphere": st.column_config.TextColumn("Сфера"),
-            "job_found_date": st.column_config.DateColumn("Дата основания", format="DD.MM.YYYY"),
-            "job_ceo": st.column_config.TextColumn("Гендиректор"),
-            "job_phone": st.column_config.TextColumn("Раб. телефон"),
-            "job_inn": st.column_config.TextColumn("ИНН Компании"),
-            "job_pos": st.column_config.TextColumn("Должность"),
-            "job_income": st.column_config.NumberColumn("Доход", format="%d"),
-            "job_start_date": st.column_config.DateColumn("Дата трудоустройства", format="DD.MM.YYYY"),
-            "job_exp": st.column_config.TextColumn("Стаж"),
-            "credit_sum": st.column_config.NumberColumn("Сумма кредита", format="%d"),
-            "loan_term": st.column_config.NumberColumn("Срок (лет)", format="%d"),
-            "has_coborrower": st.column_config.CheckboxColumn("Созаемщик"),
-            "first_pay": st.column_config.NumberColumn("ПВ", format="%d"),
-            "current_debts": st.column_config.NumberColumn("Платежи", format="%d"),
-            "assets": st.column_config.TextColumn("Активы"),
-            "is_pledged": st.column_config.CheckboxColumn("В залоге"),
-            "pledge_bank": st.column_config.TextColumn("Банк залога"),
-            "pledge_amount": st.column_config.NumberColumn("Долг залога", format="%d"),
-            "yandex_link": st.column_config.LinkColumn("Яндекс Диск"),
-            "mosgorsud_comment": st.column_config.TextColumn("МосГорСуд"),
-            "fssp_comment": st.column_config.TextColumn("ФССП"),
-            "block_comment": st.column_config.TextColumn("Блок счета"),
-        }
-    )
-    
-    if st.button("💾 Сохранить изменения"):
-        with st.spinner("Сохранение..."):
-            current_db = db.load_clients()
-            
-            # 1. Handle Deletions
-            original_ids = set(filtered_df['id'].dropna())
-            current_ids = set(edited_df['id'].dropna())
-            deleted_ids = original_ids - current_ids
-            
-            if deleted_ids:
-                current_db = current_db[~current_db['id'].isin(deleted_ids)]
-                
-            # 2. Handle Updates and New Rows
-            for index, row in edited_df.iterrows():
-                row_id = row.get('id')
-                
-                fio = str(row.get('fio', ''))
-                surname, name, patronymic = parse_fio(fio)
-                
-                if pd.isna(row_id) or row_id == "":
-                    # NEW ROW
-                    new_id = str(hash(fio + str(datetime.now())))
-                    new_row = row.to_dict()
-                    new_row['id'] = new_id
-                    new_row['surname'] = surname
-                    new_row['name'] = name
-                    new_row['patronymic'] = patronymic
-                    if pd.isna(new_row.get('created_at')):
-                        new_row['created_at'] = datetime.now().strftime('%Y-%m-%d')
-                    
-                    current_db = pd.concat([current_db, pd.DataFrame([new_row])], ignore_index=True)
-                else:
-                    # EXISTING ROW - Update
-                    mask = current_db['id'] == row_id
-                    if mask.any():
-                        for col in edited_df.columns:
-                            current_db.loc[mask, col] = row[col]
-                        # Explicitly update parsed FIO fields
-                        current_db.loc[mask, 'surname'] = surname
-                        current_db.loc[mask, 'name'] = name
-                        current_db.loc[mask, 'patronymic'] = patronymic
-            
-            db.save_all_clients(current_db)
-            st.success("✅ Изменения сохранены!")
-            st.rerun()
+# Top Menu
+pages = ["Новый клиент", "Карточка Клиента", "База Клиентов", "База Банков"]
+if st.session_state.page not in pages:
+    st.session_state.page = "Новый клиент"
 
-# --- Page: Новый клиент ---
-# --- Page: Новый клиент ---
-with tab_new_client:
-    st.header("Новый клиент")
+current_index = pages.index(st.session_state.page)
+
+selected_page = st.radio(
+    "Меню", 
+    pages, 
+    horizontal=True,
+    label_visibility="collapsed",
+    index=current_index
+)
+
+if selected_page != st.session_state.page:
+    st.session_state.page = selected_page
+    st.rerun()
+
+# Helper function to render the client form (for both new and edit)
+def render_client_form(client_data=None, key_prefix=""):
+    # Default values for new client
+    default_fio = client_data.get('fio') or '' if client_data else ''
+    default_status = client_data.get('status', None) if client_data else None
+    default_loan_type = client_data.get('loan_type', None) if client_data else None
+    default_credit_sum = client_data.get('credit_sum', 0) if client_data else 0
+    default_obj_price = client_data.get('obj_price', 0) if client_data else 0
+    default_first_pay = client_data.get('first_pay', 0) if client_data else 0
+    default_cian_report_link = client_data.get('cian_report_link', '') if client_data else ''
+    default_is_pledged_val = "Да" if client_data and client_data.get('is_pledged') else "Нет"
+    default_pledge_bank = client_data.get('pledge_bank', '') if client_data else ''
+    default_pledge_amount = client_data.get('pledge_amount', 0) if client_data else 0
+    
+    default_gender = client_data.get('gender', None) if client_data else None
+    default_dob = pd.to_datetime(client_data['dob']).date() if client_data and client_data.get('dob') else None
+    default_birth_place = client_data.get('birth_place') or '' if client_data else ''
+    default_phone = client_data.get('phone') or '' if client_data else ''
+    default_email = client_data.get('email') or '' if client_data else ''
+    default_family = client_data.get('family_status', None) if client_data else None
+    default_children_count = client_data.get('children_count', 0) if client_data else 0
+    default_marriage_contract = client_data.get('marriage_contract', None) if client_data else None
+    default_children_dates = client_data.get('children_dates', '').split(', ') if client_data and client_data.get('children_dates') else []
+
+    default_pass_ser = client_data.get('passport_ser', '') if client_data else ''
+    default_pass_num = client_data.get('passport_num', '') if client_data else ''
+    default_pass_code = client_data.get('kpp', '') if client_data else ''
+    default_pass_date = pd.to_datetime(client_data['passport_date']).date() if client_data and client_data.get('passport_date') else None
+    default_pass_issued = client_data.get('passport_issued', '') if client_data else ''
+
+    default_addr_index = client_data.get('addr_index', '') if client_data else ''
+    default_addr_region = client_data.get('addr_region', '') if client_data else ''
+    default_addr_city = client_data.get('addr_city', '') if client_data else ''
+    default_addr_street = client_data.get('addr_street', '') if client_data else ''
+    default_addr_house = client_data.get('addr_house', '') if client_data else ''
+    default_addr_korpus = client_data.get('addr_korpus', '') if client_data else ''
+    default_addr_structure = client_data.get('addr_structure', '') if client_data else ''
+    default_addr_flat = client_data.get('addr_flat', '') if client_data else ''
+
+    default_snils = client_data.get('snils', '') if client_data else ''
+    default_inn = client_data.get('inn', '') if client_data else ''
+
+    default_job_type = client_data.get('job_type', None) if client_data else None
+    default_job_official_val = "Да" if client_data and client_data.get('job_official') else "Нет"
+    default_job_company = client_data.get('job_company', '') if client_data else ''
+    default_job_sphere = client_data.get('job_sphere', '') if client_data else ''
+    default_job_inn = client_data.get('job_inn', '') if client_data else ''
+    default_job_found_date = pd.to_datetime(client_data['job_found_date']).date() if client_data and client_data.get('job_found_date') else None
+    default_job_pos = client_data.get('job_pos', '') if client_data else ''
+    default_job_income = client_data.get('job_income', 0) if client_data else 0
+    default_job_start_date = pd.to_datetime(client_data['job_start_date']).date() if client_data and client_data.get('job_start_date') else None
+    default_job_ceo = client_data.get('job_ceo', '') if client_data else ''
+    default_job_phone = client_data.get('job_phone', '') if client_data else ''
+
+    default_loan_term = client_data.get('loan_term', 0) if client_data else 0
+    default_has_coborrower_val = "Да" if client_data and client_data.get('has_coborrower') else "Нет"
+    default_current_debts = client_data.get('current_debts', 0) if client_data else 0
+    default_mosgorsud_comment = client_data.get('mosgorsud_comment', '') if client_data else ''
+    default_fssp_comment = client_data.get('fssp_comment', '') if client_data else ''
+    default_block_comment = client_data.get('block_comment', '') if client_data else ''
+    default_assets = str(client_data.get('assets', '')).split(', ') if client_data and client_data.get('assets') and str(client_data.get('assets')) != 'nan' else []
+
+    default_obj_type = client_data.get('obj_type', None) if client_data else None
+    default_obj_doc_type = client_data.get('obj_doc_type', None) if client_data else None
+    default_obj_date = pd.to_datetime(client_data['obj_date']).date() if client_data and client_data.get('obj_date') else None
+    default_obj_area = client_data.get('obj_area', 0.0) if client_data else 0.0
+    default_obj_floor = client_data.get('obj_floor', 0) if client_data else 0
+    default_obj_total_floors = client_data.get('obj_total_floors', 0) if client_data else 0
+    default_obj_walls = client_data.get('obj_walls', None) if client_data else None
+    default_obj_renovation_val = "Да" if client_data and client_data.get('obj_renovation') == "Да" else "Нет"
+    
+    default_gift_donor_consent = client_data.get('gift_donor_consent', None) if client_data else None
+    default_gift_donor_registered = client_data.get('gift_donor_registered', None) if client_data else None
+    default_gift_donor_deregister = client_data.get('gift_donor_deregister', None) if client_data else None
+
+    default_obj_index = client_data.get('obj_index', '') if client_data else ''
+    default_obj_region = client_data.get('obj_region', '') if client_data else ''
+    default_obj_city = client_data.get('obj_city', '') if client_data else ''
+    default_obj_street = client_data.get('obj_street', '') if client_data else ''
+    default_obj_house = client_data.get('obj_house', '') if client_data else ''
+    default_obj_korpus = client_data.get('obj_korpus', '') if client_data else ''
+    default_obj_structure = client_data.get('obj_structure', '') if client_data else ''
+    default_obj_flat = client_data.get('obj_flat', '') if client_data else ''
+    
+    # Determine if obj address should be copied
+    copy_addr_val = "Нет"
+    if client_data:
+        # If any obj_addr field is different from reg_addr, then it's not copied
+        if not (client_data.get('obj_index') == client_data.get('addr_index') and
+                client_data.get('obj_region') == client_data.get('addr_region') and
+                client_data.get('obj_city') == client_data.get('addr_city') and
+                client_data.get('obj_street') == client_data.get('addr_street') and
+                client_data.get('obj_house') == client_data.get('addr_house') and
+                client_data.get('obj_korpus') == client_data.get('addr_korpus') and
+                client_data.get('obj_structure') == client_data.get('addr_structure') and
+                client_data.get('obj_flat') == client_data.get('addr_flat')):
+            copy_addr_val = "Нет"
+        else:
+            copy_addr_val = "Да"
     
     c1, c2, c3 = st.columns([2, 1, 1])
-    fio = c1.text_input("ФИО")
-    status = c2.selectbox("Статус", ["Новый", "В работе", "Одобрен", "Сделка", "Отказ", "Архив"], index=None, placeholder="Выберите статус...")
-    loan_type = c3.selectbox("Тип заявки", ["Ипотека", "Залог"], index=None, placeholder="Выберите тип...")
+    fio = c1.text_input("ФИО", value=default_fio, key=f"{key_prefix}fio")
+    status = c2.selectbox("Статус", ["Новый", "В работе", "Одобрен", "Сделка", "Отказ", "Архив"], index=["Новый", "В работе", "Одобрен", "Сделка", "Отказ", "Архив"].index(default_status) if default_status else None, placeholder="Выберите статус...", key=f"{key_prefix}status")
+    loan_type = c3.selectbox("Тип заявки", ["Ипотека", "Залог"], index=["Ипотека", "Залог"].index(default_loan_type) if default_loan_type else None, placeholder="Выберите тип...", key=f"{key_prefix}loan_type")
     
     c4, c5, c6 = st.columns(3)
     with c4:
-        credit_sum = formatted_number_input("Требуемая сумма кредита", "credit_sum_input")
+        credit_sum = formatted_number_input("Требуемая сумма кредита", f"{key_prefix}credit_sum_input", value=default_credit_sum)
     
     with c5:
         op_cols = st.columns([0.85, 0.15])
         with op_cols[0]:
-            obj_price = formatted_number_input("Стоимость объекта", "obj_price_input")
+            obj_price = formatted_number_input("Стоимость объекта", f"{key_prefix}obj_price_input", value=default_obj_price)
         op_cols[1].markdown("<br>", unsafe_allow_html=True)
         op_cols[1].link_button("🧮", "https://www.cian.ru/kalkulator-nedvizhimosti/", help="Калькулятор недвижимости")
         
     first_pay = 0.0
     if loan_type == "Ипотека":
         with c6:
-            first_pay = formatted_number_input("Первоначальный взнос", "first_pay_input")
+            first_pay = formatted_number_input("Первоначальный взнос", f"{key_prefix}first_pay_input", value=default_first_pay)
             
     # LTV and CIAN Report Row
     # LTV left, CIAN right (same row)
@@ -447,16 +403,16 @@ with tab_new_client:
         
     r2_c1, r2_c2, r2_c3 = st.columns(3)
     with r2_c1:
-        st.text_input("КЗ (Коэффициент Залога)", value=f"{ltv_val:.1f}%", disabled=True)
+        st.text_input("КЗ (Коэффициент Залога)", value=f"{ltv_val:.1f}%", disabled=True, key=f"{key_prefix}ltv_display")
     with r2_c2:
-        cian_report_link = st.text_input("Отчет об оценке ЦИАН")
+        cian_report_link = st.text_input("Отчет об оценке ЦИАН", value=default_cian_report_link, key=f"{key_prefix}cian_report_link")
     
     # Pledge Logic
     # Inline: Is Pledged? | Bank | Amount
     p_c1, p_c2, p_c3 = st.columns([1, 1, 1])
     
     with p_c1:
-        is_pledged_val = st.radio("Объект сейчас в залоге?", ["Да", "Нет"], horizontal=True, index=None)
+        is_pledged_val = st.radio("Объект сейчас в залоге?", ["Да", "Нет"], horizontal=True, index=["Да", "Нет"].index(default_is_pledged_val) if default_is_pledged_val else None, key=f"{key_prefix}is_pledged_val")
     is_pledged = is_pledged_val == "Да"
     
     pledge_bank = ""
@@ -464,9 +420,9 @@ with tab_new_client:
     
     if is_pledged:
         with p_c2:
-            pledge_bank = st.text_input("Где заложен (Банк)")
+            pledge_bank = st.text_input("Где заложен (Банк)", value=default_pledge_bank, key=f"{key_prefix}pledge_bank")
         with p_c3:
-            pledge_amount = formatted_number_input("Сумма текущего долга", "pledge_amount_input")
+            pledge_amount = formatted_number_input("Сумма текущего долга", f"{key_prefix}pledge_amount_input", value=default_pledge_amount)
     
     st.divider()
     
@@ -478,18 +434,26 @@ with tab_new_client:
         
         # Row 1: Gender, DOB, Birth Place
         pd_r1_1, pd_r1_2, pd_r1_3 = st.columns(3)
-        gender = pd_r1_1.radio("Пол", ["Мужской", "Женский"], horizontal=True, index=None)
-        dob = pd_r1_2.date_input("Дата рождения", min_value=min_date, max_value=max_date, value=None)
-        birth_place = pd_r1_3.text_input("Место рождения")
+        gender = pd_r1_1.radio("Пол", ["Мужской", "Женский"], horizontal=True, index=["Мужской", "Женский"].index(default_gender) if default_gender else None, key=f"{key_prefix}gender")
+        dob = pd_r1_2.date_input("Дата рождения", min_value=min_date, max_value=max_date, value=default_dob, key=f"{key_prefix}dob")
+        birth_place = pd_r1_3.text_input("Место рождения", value=default_birth_place, key=f"{key_prefix}birth_place")
         
         # Row 2: Phone, Email
         pd_r2_1, pd_r2_2 = st.columns(2)
         with pd_r2_1:
-            phone = formatted_phone_input("Телефон", "phone_input")
+
+            phone = formatted_phone_input("Телефон", f"{key_prefix}phone_input", value=default_phone)
         with pd_r2_2:
             em_c1, em_c2 = st.columns([2, 1])
-            email_user = em_c1.text_input("Email")
-            email_domain = em_c2.selectbox("Домен", ["@gmail.com", "@ya.ru", "@mail.ru", "Вручную"], label_visibility="hidden", index=None, placeholder="@...")
+            email_user_part = default_email.split('@')[0] if '@' in default_email else default_email
+            email_domain_part = '@' + default_email.split('@')[1] if '@' in default_email else None
+            
+            email_user = em_c1.text_input("Email", value=email_user_part, key=f"{key_prefix}email_user")
+            
+            domain_options = ["@gmail.com", "@ya.ru", "@mail.ru", "Вручную"]
+            default_domain_index = domain_options.index(email_domain_part) if email_domain_part in domain_options else (len(domain_options) - 1 if email_domain_part else None)
+            
+            email_domain = em_c2.selectbox("Домен", domain_options, label_visibility="hidden", index=default_domain_index, placeholder="@...", key=f"{key_prefix}email_domain")
             
             if email_domain and email_domain != "Вручную":
                 email = email_user + email_domain
@@ -498,35 +462,35 @@ with tab_new_client:
         
         # Row 3: Marital Status, Children, Marriage Contract
         pd_r3_1, pd_r3_2, pd_r3_3 = st.columns(3)
-        family = pd_r3_1.selectbox("Семейное положение", ["Холост/Не замужем", "Женат/Замужем", "Разведен(а)", "Вдовец/Вдова"], index=None, placeholder="Выберите...")
-        children_count = pd_r3_2.number_input("Кол-во несовершеннолетних детей", 0, 10, 0)
-        marriage_contract = pd_r3_3.radio("Наличие брачного договора / нотариального согласия", ["Брачный контракт", "Нотариальное согласие", "Нет"], horizontal=True, index=None)
+        family = pd_r3_1.selectbox("Семейное положение", ["Холост/Не замужем", "Женат/Замужем", "Разведен(а)", "Вдовец/Вдова"], index=["Холост/Не замужем", "Женат/Замужем", "Разведен(a)", "Вдовец/Вдова"].index(default_family) if default_family else None, placeholder="Выберите...", key=f"{key_prefix}family")
+        children_count = pd_r3_2.number_input("Кол-во несовершеннолетних детей", 0, 10, value=default_children_count, key=f"{key_prefix}children_count")
+        marriage_contract = pd_r3_3.radio("Наличие брачного договора / нотариального согласия", ["Брачный контракт", "Нотариальное согласие", "Нет"], horizontal=True, index=["Брачный контракт", "Нотариальное согласие", "Нет"].index(default_marriage_contract) if default_marriage_contract else None, key=f"{key_prefix}marriage_contract")
         
         children_dates = []
         if children_count > 0:
             st.caption("Даты рождения детей:")
             cols = st.columns(min(children_count, 4))
             for i in range(children_count):
-                with cols[i % 4]:
-                    d = st.date_input(f"Ребенок {i+1}", min_value=datetime(2000,1,1).date(), max_value=max_date, key=f"child_{i}", value=None)
-                    children_dates.append(str(d) if d else "")
+                default_child_date = pd.to_datetime(default_children_dates[i]).date() if i < len(default_children_dates) and default_children_dates[i] else None
+                d = st.date_input(f"Ребенок {i+1}", min_value=datetime(2000,1,1).date(), max_value=max_date, key=f"{key_prefix}child_{i}", value=default_child_date)
+                children_dates.append(str(d) if d else "")
         
         st.divider()
         st.subheader("Паспорт")
         p1, p2, p3, p4 = st.columns(4)
-        pass_ser = p1.text_input("Серия")
-        pass_num = p2.text_input("Номер")
-        pass_code = p3.text_input("Код подразделения")
-        pass_date = p4.date_input("Дата выдачи", min_value=datetime(1990, 1, 1).date(), max_value=max_date, value=None)
+        pass_ser = p1.text_input("Серия", value=default_pass_ser, key=f"{key_prefix}pass_ser")
+        pass_num = p2.text_input("Номер", value=default_pass_num, key=f"{key_prefix}pass_num")
+        pass_code = p3.text_input("Код подразделения", value=default_pass_code, key=f"{key_prefix}pass_code")
+        pass_date = p4.date_input("Дата выдачи", min_value=datetime(1990, 1, 1).date(), max_value=max_date, value=default_pass_date, key=f"{key_prefix}pass_date")
         
-        pass_issued = st.text_input("Кем выдан")
+        pass_issued = st.text_input("Кем выдан", value=default_pass_issued, key=f"{key_prefix}pass_issued")
         
         st.subheader("Адрес регистрации")
         a1, a2, a3, a4 = st.columns([1, 0.2, 1, 1])
-        addr_index = a1.text_input("Индекс")
+        addr_index = a1.text_input("Индекс", value=default_addr_index, key=f"{key_prefix}addr_index")
         a2.markdown("<div style='padding-top: 28px;'><a href='https://xn--80a1acny.ru.com/' target='_blank' style='text-decoration: none; font-size: 20px;'>🔍</a></div>", unsafe_allow_html=True)
-        addr_region = a3.text_input("Регион")
-        addr_city = a4.text_input("Город")
+        addr_region = a3.text_input("Регион", value=default_addr_region, key=f"{key_prefix}addr_region")
+        addr_city = a4.text_input("Город", value=default_addr_city, key=f"{key_prefix}addr_city")
         
         a5, a6, a7, a8, a9 = st.columns(5)
         addr_street = a5.text_input("Улица")
@@ -721,165 +685,335 @@ with tab_new_client:
             
         # cian_link removed from here as it moved to top
         
-    submitted = st.button("Сохранить клиента")
-        
-    if submitted:
-        if not fio:
-            st.error("ФИО обязательно для заполнения!")
+    # Parse FIO for return data
+    surname, name, patronymic = parse_fio(fio)
+    
+    # Copy address if needed
+    if copy_addr:
+        obj_index = addr_index
+        obj_region = addr_region
+        obj_city = addr_city
+        obj_street = addr_street
+        obj_house = addr_house
+        obj_korpus = addr_korpus
+        obj_structure = addr_structure
+        obj_flat = addr_flat
+
+    data = {
+        "status": status,
+        "loan_type": loan_type,
+        "fio": fio,
+        "surname": surname,
+        "name": name,
+        "patronymic": patronymic,
+        "gender": gender,
+        "dob": str(dob),
+        "birth_place": birth_place,
+        "phone": phone,
+        "email": email,
+        "passport_ser": pass_ser,
+        "passport_num": pass_num,
+        "passport_issued": pass_issued,
+        "passport_date": str(pass_date),
+        "kpp": pass_code,
+        "inn": inn,
+        "snils": snils,
+        "addr_index": addr_index,
+        "addr_region": addr_region,
+        "addr_city": addr_city,
+        "addr_street": addr_street,
+        "addr_house": addr_house,
+        "addr_korpus": addr_korpus,
+        "addr_structure": addr_structure,
+        "addr_flat": addr_flat,
+        "obj_type": obj_type,
+        "obj_index": obj_index,
+        "obj_region": obj_region,
+        "obj_city": obj_city,
+        "obj_street": obj_street,
+        "obj_house": obj_house,
+        "obj_korpus": obj_korpus,
+        "obj_structure": obj_structure,
+        "obj_flat": obj_flat,
+        "obj_area": obj_area,
+        "obj_price": obj_price,
+        "obj_doc_type": own_doc_type,
+        "obj_date": str(obj_date),
+        "obj_renovation": obj_renovation,
+        "obj_floor": obj_floor,
+        "obj_total_floors": obj_total_floors,
+        "obj_walls": obj_walls,
+        "gift_donor_consent": gift_donor_consent,
+        "gift_donor_registered": gift_donor_registered,
+        "gift_donor_deregister": gift_donor_deregister,
+        "cian_report_link": cian_report_link,
+        "family_status": family,
+        "marriage_contract": marriage_contract,
+        "children_count": children_count,
+        "children_dates": "; ".join(children_dates),
+        "job_type": job_type,
+        "job_official": job_official,
+        "job_company": job_company,
+        "job_sphere": job_industry,
+        "job_found_date": str(job_date) if job_date else "",
+        "job_ceo": job_ceo,
+        "job_phone": job_phone,
+        "job_inn": job_inn,
+        "job_pos": job_position,
+        "job_income": job_income,
+        "job_start_date": str(job_start_date) if job_start_date else "",
+        "job_exp": exp_str,
+        "credit_sum": credit_sum,
+        "loan_term": loan_term_years,
+        "has_coborrower": "Да" if has_coborrower else "Нет",
+        "first_pay": first_pay,
+        "current_debts": current_debts,
+        "assets": assets_str,
+        "is_pledged": "Да" if is_pledged else "Нет",
+        "pledge_bank": pledge_bank,
+        "pledge_amount": pledge_amount,
+        "mosgorsud_comment": mosgorsud_comment,
+        "fssp_comment": fssp_comment,
+        "block_comment": block_comment
+    }
+    
+    return data
+
+# --- Page: Новый клиент (Editor) ---
+if selected_page == "Новый клиент":
+    # Check if we are in "Edit Mode"
+    edit_client_id = st.session_state.get("editing_client_id")
+    edit_client_data = None
+    
+    if edit_client_id:
+        st.header("✏️ Редактирование клиента")
+        # Load fresh data from DB to ensure we have latest
+        all_clients = db.load_clients()
+        if not all_clients.empty and edit_client_id in all_clients['id'].values:
+            edit_client_data = all_clients[all_clients['id'] == edit_client_id].iloc[0].to_dict()
         else:
-            # Copy address if needed
-            if copy_addr:
-                obj_index = addr_index
-                obj_region = addr_region
-                obj_city = addr_city
-                obj_street = addr_street
-                obj_house = addr_house
-                obj_korpus = addr_korpus
-                obj_structure = addr_structure
-                obj_flat = addr_flat
-                
+            st.error("Клиент не найден!")
+            st.session_state.editing_client_id = None
+            st.rerun()
+            
+        if st.button("❌ Отмена редактирования"):
+            st.session_state.editing_client_id = None
+            st.rerun()
+            
+        form_data = render_client_form(client_data=edit_client_data, key_prefix="edit_")
+        
+        if st.button("💾 Сохранить изменения"):
             with st.spinner("Сохранение..."):
-                folder_name = f"{fio}_{datetime.now().strftime('%Y-%m-%d')}"
-                yandex_link = create_yandex_folder(folder_name)
-                client_id = str(hash(fio + str(datetime.now())))
+                # Update data
+                data = form_data.copy()
+                data["id"] = edit_client_data["id"]
+                data["created_at"] = edit_client_data["created_at"]
+                data["yandex_link"] = edit_client_data.get("yandex_link", "")
                 
-                # Parse FIO here for the new client
-                surname, name, patronymic = parse_fio(fio)
+                # Parse FIO if changed
+                if data["fio"] != edit_client_data["fio"]:
+                    surname, name, patronymic = parse_fio(data["fio"])
+                    data["surname"] = surname
+                    data["name"] = name
+                    data["patronymic"] = patronymic
+                else:
+                    data["surname"] = edit_client_data.get("surname", "")
+                    data["name"] = edit_client_data.get("name", "")
+                    data["patronymic"] = edit_client_data.get("patronymic", "")
 
-                data = {
-                    "id": client_id,
-                    "created_at": datetime.now().strftime('%Y-%m-%d'),
-                    "status": status,
-                    "loan_type": loan_type,
-                    "fio": fio,
-                    "surname": surname, # Added
-                    "name": name,       # Added
-                    "patronymic": patronymic, # Added
-                    "gender": gender,
-                    "dob": str(dob),
-                    "birth_place": birth_place,
-                    "phone": phone,
-                    "email": email,
-                    "passport_ser": pass_ser,
-                    "passport_num": pass_num,
-                    "passport_issued": pass_issued,
-                    "passport_date": str(pass_date),
-                    "kpp": pass_code,  # В базе это kpp, в форме pass_code - ОК
-                    "inn": inn,
-                    "snils": snils,
-                    "addr_index": addr_index,
-                    "addr_region": addr_region,
-                    "addr_city": addr_city,
-                    "addr_street": addr_street,
-                    "addr_house": addr_house,
-                    "addr_korpus": addr_korpus,
-                    "addr_structure": addr_structure,
-                    "addr_flat": addr_flat,
-                    "obj_type": obj_type,
-                    "obj_index": obj_index,
-                    "obj_region": obj_region,
-                    "obj_city": obj_city,
-                    "obj_street": obj_street,
-                    "obj_house": obj_house,
-                    "obj_korpus": obj_korpus,
-                    "obj_structure": obj_structure,
-                    "obj_flat": obj_flat,
-                    "obj_area": obj_area,
-                    "obj_price": obj_price,
-                    "obj_doc_type": own_doc_type,
-                    "obj_date": str(obj_date),
-                    "obj_renovation": obj_renovation, # Исправил переменную (была пустая строка "")
-                    "obj_floor": obj_floor,
-                    "obj_total_floors": obj_total_floors,
-                    "obj_walls": obj_walls,
-                    "gift_donor_consent": gift_donor_consent,
-                    "gift_donor_registered": gift_donor_registered,
-                    "gift_donor_deregister": gift_donor_deregister,
-                    "cian_report_link": cian_report_link,
-                    "family_status": family,
-                    "marriage_contract": marriage_contract,
-                    "children_count": children_count,
-                    "children_dates": "; ".join(children_dates),
-                    "job_type": job_type,
-                    "job_official": job_official,
-                    "job_company": job_company,
-                    "job_sphere": job_industry,          # ИСПРАВЛЕНО (было job_sphere)
-                    "job_found_date": str(job_date) if job_date else "", # ИСПРАВЛЕНО (было job_found_date)
-                    "job_ceo": job_ceo,
-                    "job_phone": job_phone,
-                    "job_inn": job_inn,
-                    "job_pos": job_position,             # ИСПРАВЛЕНО (было job_pos)
-                    "job_income": job_income,
-                    "job_start_date": str(job_start_date) if job_start_date else "",
-                    "job_exp": exp_str,                  # ИСПРАВЛЕНО (было experience_str)
-                    "credit_sum": credit_sum,
-                    "loan_term": loan_term_years,
-                    "has_coborrower": "Да" if has_coborrower else "Нет",
-                    "first_pay": first_pay,
-                    "current_debts": current_debts,
-                    "assets": assets_str,
-                    "is_pledged": "Да" if is_pledged else "Нет",
-                    "pledge_bank": pledge_bank,
-                    "pledge_amount": pledge_amount,
-                    # Убрал дубликаты pledge_bank/amount
-                    "yandex_link": yandex_link,
-                    "mosgorsud_comment": mosgorsud_comment,
-                    "fssp_comment": fssp_comment,
-                    "block_comment": block_comment
-                }
+                # Convert date objects to strings
+                for key, val in data.items():
+                    if isinstance(val, (date, datetime)):
+                        data[key] = str(val)
+                
                 db.save_client(data)
-                st.success(f"Клиент {fio} сохранен!")
+                st.success(f"Данные клиента {data['fio']} обновлены!")
+                st.session_state.editing_client_id = None # Exit edit mode
+                time.sleep(1)
+                st.rerun()
+                
+    else:
+        st.header("🆕 Новый клиент")
+        form_data = render_client_form(key_prefix="new_")
+        
+        if st.button("✨ Создать клиента"):
+            if not form_data["fio"]:
+                st.error("ФИО обязательно для заполнения!")
+            else:
+                with st.spinner("Сохранение..."):
+                    # Generate ID and basic fields
+                    client_id = str(hash(form_data["fio"] + str(datetime.now())))
+                    
+                    # Parse FIO
+                    surname, name, patronymic = parse_fio(form_data["fio"])
+                    
+                    # Create Yandex folder
+                    folder_name = f"{form_data['fio']}_{datetime.now().strftime('%Y-%m-%d')}"
+                    yandex_link = create_yandex_folder(folder_name)
+                    
+                    # Prepare data for saving
+                    data = form_data.copy()
+                    data["id"] = client_id
+                    data["created_at"] = datetime.now().strftime('%Y-%m-%d')
+                    data["surname"] = surname
+                    data["name"] = name
+                    data["patronymic"] = patronymic
+                    data["yandex_link"] = yandex_link
+                    
+                    # Convert date objects to strings
+                    for key, val in data.items():
+                        if isinstance(val, (date, datetime)):
+                            data[key] = str(val)
+                            
+                    db.save_client(data)
+                    st.success(f"Клиент {form_data['fio']} сохранен!")
+
+# --- Page: База Клиентов ---
+elif selected_page == "База Клиентов":
+    st.title("📂 База Клиентов")
+    
+    df = db.load_clients()
+    
+    if df.empty:
+        st.info("База данных пуста. Добавьте первого клиента!")
+    else:
+        # Pre-process dates for editor
+        date_cols = ["created_at", "dob", "passport_date", "obj_date", "job_found_date", "job_start_date"]
+        for col in date_cols:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors='coerce')
+                # Replace NaT with None (Streamlit requires None for empty dates, not NaT)
+                df[col] = df[col].astype(object).where(df[col].notnull(), None)
+
+        # Force all other columns to string if they are not numeric/date, to avoid float inference for empty cols
+        numeric_cols = ["credit_sum", "obj_price", "first_pay", "current_debts", "pledge_amount", "job_income", "obj_area", "obj_floor", "obj_total_floors", "children_count", "loan_term"]
+        
+        for col in df.columns:
+            if col not in date_cols and col not in numeric_cols and col != "Select":
+                # Treat as text
+                val = df[col].astype(str).replace("nan", "").replace("None", "")
+                df[col] = val.apply(lambda x: x[:-2] if x.endswith(".0") else x)
+        
+        # Filters
+        col1, col2 = st.columns(2)
+        with col1:
+            status_filter = st.multiselect("Фильтр по статусу", options=df["status"].unique() if not df.empty else [])
+        with col2:
+            search = st.text_input("Поиск по ФИО")
+            
+        filtered_df = df.copy()
+        if status_filter:
+            filtered_df = filtered_df[filtered_df["status"].isin(status_filter)]
+        if search:
+            filtered_df = filtered_df[filtered_df["fio"].str.contains(search, case=False, na=False)]
+            
+        # Data Editor
+        edited_df = st.data_editor(
+            filtered_df,
+            num_rows="dynamic",
+            disabled=["id", "created_at", "surname", "name", "patronymic"],
+            key="client_editor_main",
+            use_container_width=True,
+            column_config={
+                "id": st.column_config.TextColumn("ID", disabled=True),
+                "created_at": st.column_config.DateColumn("Создан", format="YYYY-MM-DD", disabled=True),
+                "status": st.column_config.SelectboxColumn("Статус", options=["Новый", "В работе", "Одобрен", "Сделка", "Отказ", "Архив"]),
+                "loan_type": st.column_config.SelectboxColumn("Тип", options=["Ипотека", "Залог"]),
+                "fio": st.column_config.TextColumn("ФИО"),
+                "credit_sum": st.column_config.NumberColumn("Сумма", format="%d"),
+                "phone": st.column_config.TextColumn("Телефон"),
+            }
+        )
+        
+        if st.button("💾 Сохранить изменения таблицы"):
+            with st.spinner("Сохранение..."):
+                current_db = db.load_clients()
+                
+                # Handle Deletions
+                original_ids = set(filtered_df['id'].dropna())
+                current_ids = set(edited_df['id'].dropna())
+                deleted_ids = original_ids - current_ids
+                
+                if deleted_ids:
+                    current_db = current_db[~current_db['id'].isin(deleted_ids)]
+                    
+                # Handle Updates
+                for index, row in edited_df.iterrows():
+                    row_id = row.get('id')
+                    fio = str(row.get('fio', ''))
+                    surname, name, patronymic = parse_fio(fio)
+                    
+                    if pd.isna(row_id) or row_id == "":
+                        new_id = str(hash(fio + str(datetime.now())))
+                        new_row = row.to_dict()
+                        new_row['id'] = new_id
+                        new_row['surname'] = surname
+                        new_row['name'] = name
+                        new_row['patronymic'] = patronymic
+                        if pd.isna(new_row.get('created_at')):
+                            new_row['created_at'] = datetime.now().strftime('%Y-%m-%d')
+                        current_db = pd.concat([current_db, pd.DataFrame([new_row])], ignore_index=True)
+                    else:
+                        mask = current_db['id'] == row_id
+                        if mask.any():
+                            for col in edited_df.columns:
+                                current_db.loc[mask, col] = row[col]
+                            current_db.loc[mask, 'surname'] = surname
+                            current_db.loc[mask, 'name'] = name
+                            current_db.loc[mask, 'patronymic'] = patronymic
+                
+                db.save_all_clients(current_db)
+                st.success("✅ Изменения сохранены!")
+                st.rerun()
 
 # --- Page: Карточка Клиента ---
-# --- Page: Карточка Клиента ---
-with tab_client_card:
+elif selected_page == "Карточка Клиента":
     st.title("🗂 Карточка Клиента")
     df = db.load_clients()
     if not df.empty:
         selected_name = st.selectbox("Выберите клиента", df["fio"].tolist())
         if selected_name:
-            client = df[df["fio"] == selected_name].iloc[0]
+            client = df[df["fio"] == selected_name].iloc[0].to_dict()
             
-            c1, c2 = st.columns([2, 1])
-            with c1:
-                st.subheader(client['fio'])
-                st.write(f"**Статус:** {client['status']}")
-                st.write(f"**Яндекс Диск:** {client['yandex_link']}")
-                with st.expander("Все данные"):
-                    st.write(client.to_dict())
+            st.subheader(f"Редактирование: {client['fio']}")
+            st.write(f"**Яндекс Диск:** {client.get('yandex_link', 'Нет ссылки')}")
             
-            with c2:
-                st.write("Документы")
-                # MULTIPLE FILES
-                uploaded_files = st.file_uploader("Загрузить файл", accept_multiple_files=True, label_visibility="collapsed")
+            # EDIT BUTTON
+            if st.button("✏️ Редактировать клиента"):
+                st.session_state.editing_client_id = client['id']
+                st.session_state.page = "Новый клиент" # Switch tab
+                st.rerun()
+            
+            with st.expander("Все данные", expanded=True):
+                st.json(client)
+            
+            st.divider()
+            st.write("Документы")
+            uploaded_files = st.file_uploader("Загрузить файл", accept_multiple_files=True, label_visibility="collapsed", key="card_uploader")
+            
+            if uploaded_files and st.button("Отправить в облако", key="card_upload_btn"):
+                folder_name = f"{client['fio']}_{client['created_at']}"
+                if not client.get('yandex_link') or client.get('yandex_link') == 'Ссылка не создана':
+                    new_link = create_yandex_folder(folder_name)
+                    client_dict = client.copy()
+                    client_dict['yandex_link'] = new_link
+                    db.save_client(client_dict)
+                    st.info("Папка на Яндекс Диске была пересоздана.")
+                    client['yandex_link'] = new_link
                 
-                if uploaded_files and st.button("Отправить в облако"):
-                    # Check if yandex link is broken or missing
-                    folder_name = f"{client['fio']}_{client['created_at']}"
+                with st.spinner(f"⏳ Загрузка {len(uploaded_files)} файлов..."):
+                    success_count = 0
+                    for f in uploaded_files:
+                        if upload_to_yandex(f, folder_name, f.name):
+                            success_count += 1
                     
-                    # If link is missing or broken, try to recreate folder
-                    if not client['yandex_link'] or client['yandex_link'] == 'Ссылка не создана':
-                        new_link = create_yandex_folder(folder_name)
-                        # Update DB with new link
-                        client_dict = client.to_dict()
-                        client_dict['yandex_link'] = new_link
-                        db.save_client(client_dict)
-                        st.info("Папка на Яндекс Диске была пересоздана.")
-                    
-                    with st.spinner(f"⏳ Загрузка {len(uploaded_files)} файлов..."):
-                        success_count = 0
-                        for f in uploaded_files:
-                            if upload_to_yandex(f, folder_name, f.name):
-                                success_count += 1
-                        
-                        if success_count == len(uploaded_files):
-                            st.success("✅ Все файлы загружены!")
-                        else:
-                            st.warning(f"⚠️ Загружено {success_count} из {len(uploaded_files)} файлов.")
+                    if success_count == len(uploaded_files):
+                        st.success("✅ Все файлы загружены!")
+                    else:
+                        st.warning(f"⚠️ Загружено {success_count} из {len(uploaded_files)} файлов.")
 
 # --- Page: База Банков ---
-# --- Page: База Банков ---
-with tab_bank_db:
+elif selected_page == "База Банков":
     st.title("🏦 Банки")
     df = db.load_banks()
     st.dataframe(df)
