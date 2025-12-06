@@ -7,7 +7,7 @@ DB_FILE = 'database.xlsx'
 # --- 1. СПИСКИ КОЛОНОК (ЭТАЛОН) ---
 # Мы вынесли их сюда, чтобы скрипт знал, как ДОЛЖНА выглядеть таблица
 CLIENT_COLS = [
-    "id", "created_at", "status", "loan_type", "fio", "surname", "name", "patronymic", "dob", "birth_place",
+    "id", "created_at", "status", "loan_type", "fio", "surname", "name", "patronymic", "dob", "age", "birth_place",
     "phone", "email", "passport_ser", "passport_num", "passport_issued",
     "passport_date", "kpp", "inn", "snils", "addr_index", "addr_region",
     "addr_city", "addr_street", "addr_house", "addr_korpus", "addr_structure", "addr_flat", "obj_type",
@@ -19,7 +19,7 @@ CLIENT_COLS = [
     "children_count", "children_dates",
     "job_type", "job_official", "job_company", "job_sphere", "job_found_date",
     "job_ceo", "job_phone", "job_inn", "job_pos", "job_income", "job_start_date",
-    "job_exp", "credit_sum", "loan_term", "has_coborrower", "first_pay", "current_debts", "assets", "is_pledged",
+    "job_exp", "total_exp", "credit_sum", "loan_term", "has_coborrower", "first_pay", "current_debts", "assets", "is_pledged",
     "pledge_bank", "pledge_amount", "yandex_link", "mosgorsud_comment", "fssp_comment", "block_comment"
 ]
 
@@ -147,12 +147,12 @@ def save_all_banks(df):
     valid_cols = [c for c in df.columns if c in BANK_COLS]
     # Ensure ID column exists
     if 'id' not in df.columns:
-        df['id'] = [str(hash(str(row))) for row in df.itertuples()]
+        df['id'] = [str(abs(hash(str(row)))) for row in df.itertuples()]
     
     # Fill missing IDs if any (for existing rows that had None)
     # We can use a simple counter or hash
     if not df.empty:
-        df['id'] = df.apply(lambda row: row['id'] if (pd.notnull(row.get('id')) and str(row.get('id')) != '' and str(row.get('id')) != 'None') else str(hash(str(row.name) + str(datetime.now()))), axis=1)
+        df['id'] = df.apply(lambda row: row['id'] if (pd.notnull(row.get('id')) and str(row.get('id')) != '' and str(row.get('id')) != 'None') else str(abs(hash(str(row.name) + str(datetime.now())))), axis=1)
     
     df = df[valid_cols]
     
