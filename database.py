@@ -20,10 +20,10 @@ CLIENT_COLS = [
     "job_type", "job_official", "job_company", "job_sphere", "job_found_date",
     "job_ceo", "job_phone", "job_inn", "job_pos", "job_income", "job_start_date",
     "job_exp", "total_exp", "credit_sum", "loan_term", "has_coborrower", "first_pay", "current_debts", "assets", "is_pledged",
-    "pledge_bank", "pledge_amount", "yandex_link", "mosgorsud_comment", "fssp_comment", "block_comment"
+    "pledge_bank", "pledge_amount", "yandex_link", "mosgorsud_comment", "fssp_comment", "block_comment", "bank_interactions"
 ]
 
-BANK_COLS = ["name", "manager_fio", "manager_phone", "manager_email", "email2", "email3", "address", "id"]
+BANK_COLS = ["name", "manager_fio", "manager_phone", "manager_email", "email2", "email3", "lk_link", "address", "id"]
 APP_COLS = ["id", "client_id", "client_fio", "bank", "date_submitted", "status", "approved_sum", "comment"]
 
 def check_and_heal_sheet(file_path, sheet_name, required_cols):
@@ -109,7 +109,12 @@ def save_entry(sheet_name, data_dict):
     
     # Логика обновления/добавления
     if 'id' in data_dict and not df.empty and 'id' in df.columns:
-        df = df[df['id'] != data_dict['id']]
+        # Cast to string for safe comparison
+        df['id'] = df['id'].astype(str)
+        target_id = str(data_dict['id']).replace('.0', '')
+        # Clean potential .0 floats in string representation if needed, though usually astype(str) is specific
+        # Ideally, we just compare string representations
+        df = df[df['id'].apply(lambda x: str(x).replace('.0', '')) != target_id]
     
     new_row = pd.DataFrame([data_dict])
     # Выравниваем колонки новой строки под существующий DF (чтобы избежать warning)
