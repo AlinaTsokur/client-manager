@@ -18,7 +18,7 @@ CLIENT_COLS = [
     "cian_report_link", "family_status", "marriage_contract", "gender",
     "children_count", "children_dates",
     "job_type", "job_official", "job_company", "job_sphere", "job_found_date",
-    "job_ceo", "job_phone", "job_inn", "job_pos", "job_income", "job_start_date",
+    "job_ceo", "job_phone", "job_inn", "job_address", "job_pos", "job_income", "job_start_date",
     "job_exp", "total_exp", "credit_sum", "loan_term", "has_coborrower", "first_pay", "current_debts", "assets", "is_pledged",
     "pledge_bank", "pledge_amount", "yandex_link", "mosgorsud_comment", "fssp_comment", "block_comment", "bank_interactions"
 ]
