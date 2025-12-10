@@ -537,10 +537,11 @@ def render_client_form(client_data=None, key_prefix=""):
     default_snils = clean_int_str(client_data.get('snils')) if client_data else ''
     default_inn = clean_int_str(client_data.get('inn')) if client_data else ''
 
+
     job_type_options = ["Найм", "ИП", "Собственник бизнеса", "Самозанятый", "Пенсионер", "Не работаю"]
     default_job_type = client_data.get('job_type', None) if client_data else None
     job_official_options = ["Да", "Нет"]
-    default_job_official_val = "Да" if client_data and client_data.get('job_official') else "Нет"
+    default_job_official_val = "Да" if client_data and str(client_data.get('job_official')).lower() in ['да', 'true', '1'] else "Нет"
     default_job_company = str(client_data.get('job_company', '')) if client_data and client_data.get('job_company') and str(client_data.get('job_company')) != 'nan' else ''
     default_job_sphere = str(client_data.get('job_sphere', '')) if client_data and client_data.get('job_sphere') and str(client_data.get('job_sphere')) != 'nan' else ''
     default_job_inn = clean_int_str(client_data.get('job_inn')) if client_data else ''
@@ -554,7 +555,7 @@ def render_client_form(client_data=None, key_prefix=""):
 
     default_loan_term = safe_int(client_data.get('loan_term'), 0) if client_data else 0
     has_coborrower_options = ["Да", "Нет"]
-    default_has_coborrower_val = "Да" if client_data and client_data.get('has_coborrower') else "Нет"
+    default_has_coborrower_val = "Да" if client_data and str(client_data.get('has_coborrower')).lower() in ['да', 'true', '1'] else "Нет"
     default_current_debts = client_data.get('current_debts', 0) if client_data else 0
     default_mosgorsud_comment = str(client_data.get('mosgorsud_comment', '')) if client_data and client_data.get('mosgorsud_comment') and str(client_data.get('mosgorsud_comment')) != 'nan' else ''
     default_fssp_comment = str(client_data.get('fssp_comment', '')) if client_data and client_data.get('fssp_comment') and str(client_data.get('fssp_comment')) != 'nan' else ''
@@ -784,7 +785,7 @@ def render_client_form(client_data=None, key_prefix=""):
                 job_inn = inn_c1.text_input("ИНН Компании", value=default_job_inn, key=f"{key_prefix}job_inn")
                 inn_c2.markdown("<div style='padding-top: 28px;'><a href='https://www.rusprofile.ru/' target='_blank' style='text-decoration: none; font-size: 20px;'>🔍</a></div>", unsafe_allow_html=True)
                 
-            job_date = jr1_4.date_input("Дата основания компании", min_value=min_date, max_value=max_date, value=None, format="DD.MM.YYYY")
+            job_date = jr1_4.date_input("Дата основания компании", min_value=min_date, max_value=max_date, value=default_job_found_date, format="DD.MM.YYYY")
             
             jr2_1, jr2_2, jr2_3, jr2_4, jr2_5 = st.columns([1.2, 1.2, 1, 0.8, 0.8])
             job_position = jr2_1.text_input("Должность", value=default_job_pos, key=f"{key_prefix}job_pos")
@@ -851,7 +852,7 @@ def render_client_form(client_data=None, key_prefix=""):
             st.text_input("Срок в месяцах", value=str(loan_term_months), disabled=True)
         
         has_coborrower_val = f3.radio("Будет ли созаемщик?", ["Да", "Нет"], horizontal=True, index=["Да", "Нет"].index(default_has_coborrower_val) if default_has_coborrower_val in ["Да", "Нет"] else None, key=f"{key_prefix}has_coborrower_val")
-        has_coborrower = has_coborrower_val == "Да"
+        has_coborrower = has_coborrower_val # Changed to store "Да"/"Нет" string
         
         # Layout: Debts | Mos Comment | Mos Link | FSSP Comment | FSSP Link | Block Comment | Block Link
         f3_cols = st.columns([3, 2, 1.2, 2, 1.2, 2, 1.2])
@@ -874,18 +875,35 @@ def render_client_form(client_data=None, key_prefix=""):
         with f3_cols[6]:
             st.markdown("<div style='padding-top: 28px;'><a href='https://service.nalog.ru/bi.html' target='_blank' style='text-decoration: none; font-size: 16px; color: white;'>🚫</a></div>", unsafe_allow_html=True)
         
-        assets_list = st.multiselect("Доп. активы", ["Машина", "Квартира", "Дом с ЗУ", "Коммерция", "Другое"])
+        # Assets logic
+        standard_assets = ["Машина", "Квартира", "Дом с ЗУ", "Коммерция", "Машиноместо", "Другое"]
+        assets_default_selected = []
+        other_val_extracted = ""
+
+        # Parse defaults for multiselect
+        for a in default_assets:
+            if a in standard_assets:
+                assets_default_selected.append(a)
+            else:
+                # If valid non-standard item (likely "Другое (...)"), select "Другое"
+                if "Другое" not in assets_default_selected:
+                    assets_default_selected.append("Другое")
+                # Extract clean value if it follows the pattern "Другое (Value)"
+                if a.startswith("Другое (") and a.endswith(")"):
+                    other_val_extracted = a[8:-1] 
+                else:
+                    other_val_extracted = a
+
+        assets_list = st.multiselect("Доп. активы", standard_assets, default=assets_default_selected)
         assets_str = ", ".join(assets_list)
+        
         if "Другое" in assets_list:
-            # Try to find the component that isn't in the standard list
-            standard_assets = ["Машина", "Квартира", "Дом с ЗУ", "Коммерция", "Другое"]
-            other_val = ""
-            for a in default_assets:
-                if a not in standard_assets:
-                    other_val = a
-                    break
-            other_asset = st.text_input("Укажите другое имущество", value=other_val)
-            assets_str += f" ({other_asset})"
+            other_asset = st.text_input("Укажите другое имущество", value=other_val_extracted)
+            if other_asset:
+                assets_str += f" ({other_asset})" # Append parsed value for saving logic (note: this might duplicate if not careful with split next time, so we rely on the split logic handling it as a chunk)
+            # Actually, standard logic was:  assets_str += f" ({other_asset})"
+            # But wait, if we edit, assets_str will be reconstructed from selection + input.
+            # If selection has "Другое", we append the input text. Correct.
         
 
         
@@ -1067,7 +1085,7 @@ def render_client_form(client_data=None, key_prefix=""):
         "children_count": children_count,
         "children_dates": "; ".join(children_dates),
         "job_type": job_type,
-        "job_official": job_official,
+        "job_official": "Да" if job_official else "Нет",
         "job_company": job_company,
         "job_sphere": job_industry,
         "job_found_date": str(job_date) if job_date else "",
@@ -1082,7 +1100,7 @@ def render_client_form(client_data=None, key_prefix=""):
         "total_exp": total_exp_val,
         "credit_sum": credit_sum,
         "loan_term": loan_term_years,
-        "has_coborrower": "Да" if has_coborrower else "Нет",
+        "has_coborrower": has_coborrower,
         "first_pay": first_pay,
         "current_debts": current_debts,
         "assets": assets_str,
@@ -1486,10 +1504,32 @@ elif selected_page == "Карточка Клиента":
                             if cols[i % 3].button(f"Сформировать {tpl_name}", key=f"card_gen_{tpl_name}_{i}"):
                                 try:
                                     # Create Context (Shared)
+                                    # --- ОБНОВЛЕННЫЙ КОТЕКСТ ---
+                                    # Логика сборки адреса объекта в одну строку
+                                    obj_parts = [
+                                        clean_int_str(client.get('obj_index', '')),
+                                        str(client.get('obj_region', '')).replace('nan', '').replace('None', ''),
+                                        str(client.get('obj_city', '')).replace('nan', '').replace('None', ''),
+                                        str(client.get('obj_street', '')).replace('nan', '').replace('None', ''),
+                                        f"д. {clean_int_str(client.get('obj_house', ''))}" if client.get('obj_house') and str(client.get('obj_house')) != 'nan' else "",
+                                        f"корп. {clean_int_str(client.get('obj_korpus', ''))}" if client.get('obj_korpus') and str(client.get('obj_korpus')) != 'nan' else "",
+                                        f"стр. {clean_int_str(client.get('obj_structure', ''))}" if client.get('obj_structure') and str(client.get('obj_structure')) != 'nan' else "",
+                                        f"кв. {clean_int_str(client.get('obj_flat', ''))}" if client.get('obj_flat') and str(client.get('obj_flat')) != 'nan' else ""
+                                    ]
+                                    # Удаляем пустые элементы и склеиваем
+                                    full_obj_addr = ", ".join([p for p in obj_parts if p and p.strip()])
+
+                                    # Вычисляем срок в месяцах
+                                    term_years = safe_int(client.get('loan_term', 0))
+                                    term_months = term_years * 12
+
+                                    # Create Context (Shared)
                                     context = {
                                         'fio': client.get('fio', ''),
                                         'phone': clean_int_str(client.get('phone', '')),
                                         'email': str(client.get('email', '')).replace('nan', ''),
+                                        
+                                        # Паспорт
                                         'passport_ser': clean_int_str(client.get('passport_ser', '')),
                                         'passport_num': clean_int_str(client.get('passport_num', '')),
                                         'passport_issued': str(client.get('passport_issued', '')).replace('nan', ''),
@@ -1498,16 +1538,19 @@ elif selected_page == "Карточка Клиента":
                                         'birth_place': str(client.get('birth_place', '')).replace('nan', ''),
                                         'kpp': str(client.get('kpp', '')).replace('nan', ''),
                                         'inn': str(client.get('inn', '')).replace('nan', ''),
-                                        'snils': str(client.get('snils', '')).replace('nan', ''),
+                                        'snils': clean_int_str(client.get('snils', '')),
+                                        
+                                        # Адрес регистрации (по частям)
                                         'addr_index': clean_int_str(client.get('addr_index', '')),
                                         'addr_city': str(client.get('addr_city', '')).replace('nan', ''),
                                         'addr_street': str(client.get('addr_street', '')).replace('nan', ''),
                                         'addr_house': clean_int_str(client.get('addr_house', '')),
-                                        
                                         'addr_flat': clean_int_str(client.get('addr_flat', '')),
                                         'addr_korpus': clean_int_str(client.get('addr_korpus', '')),
                                         'addr_structure': clean_int_str(client.get('addr_structure', '')),
                                         'addr_region': str(client.get('addr_region', '')).replace('nan', '').replace('None', ''),
+                                        
+                                        # Адрес регистрации (ПОЛНЫЙ СТРОКОЙ)
                                         'addr_reg': ", ".join(filter(None, [
                                             clean_int_str(client.get('addr_index', '')),
                                             str(client.get('addr_region', '')).replace('nan', '').replace('None', ''),
@@ -1518,12 +1561,22 @@ elif selected_page == "Карточка Клиента":
                                             f"стр. {clean_int_str(client.get('addr_structure', ''))}" if client.get('addr_structure') and str(client.get('addr_structure')) != 'nan' else "",
                                             f"кв. {clean_int_str(client.get('addr_flat', ''))}" if client.get('addr_flat') and str(client.get('addr_flat')) != 'nan' else ""
                                         ])),
+
+                                        # --- НОВОЕ: Адрес залога (ПОЛНЫЙ СТРОКОЙ) ---
+                                        'obj_addr': full_obj_addr,
+                                        # ---------------------------------------------
+
+                                        # Данные банка и кредита
                                         'bank_name': selected_bank_name,
                                         'credit_sum': client.get('credit_sum', 0),
-                                        'loan_term': client.get('loan_term', 0),
+                                        
+                                        # Сроки кредита
+                                        'loan_term': term_years,       # В годах (например: 15)
+                                        'loan_term_months': term_months, # В месяцах (например: 180)
+                                        
                                         'today': date.today().strftime("%d.%m.%Y"),
                                         
-                                        # Job Fields
+                                        # Работа
                                         'job_company': str(client.get('job_company', '')).replace('nan', ''),
                                         'job_pos': str(client.get('job_pos', '')).replace('nan', ''),
                                         'job_income': clean_int_str(client.get('job_income', '')),
@@ -1532,6 +1585,21 @@ elif selected_page == "Карточка Клиента":
                                         'job_ceo': str(client.get('job_ceo', '')).replace('nan', ''),
                                         'job_address': str(client.get('job_address', '')).replace('nan', ''),
                                         'total_exp': clean_int_str(client.get('total_exp', '')),
+                                        
+                                        # Личные данные (добавлено)
+                                        'family_status': client.get('family_status', ''),
+                                        'gender': client.get('gender', ''),
+                                        'children_count': clean_int_str(client.get('children_count', '')),
+                                        'children_dates': str(client.get('children_dates', '')).replace('nan', '') if safe_int(client.get('children_count', 0)) > 0 else "",
+                                        
+                                        # Работа (добавлено)
+                                        'job_start_date': pd.to_datetime(client.get('job_start_date')).strftime('%d.%m.%Y') if pd.notna(client.get('job_start_date')) and str(client.get('job_start_date')) != 'None' else "",
+                                        
+                                        # Объект (добавлено)
+                                        'obj_area': clean_int_str(client.get('obj_area', '')),
+                                        'obj_floor': clean_int_str(client.get('obj_floor', '')),
+                                        'obj_total_floors': clean_int_str(client.get('obj_total_floors', '')),
+                                        'obj_walls': client.get('obj_walls', ''),
                                     }
 
                                     if tpl_name.endswith('.docx'):
