@@ -22,26 +22,96 @@ FONTS_DIR = 'fonts'
 TEMPLATES_DIR = 'templates'
 
 # Options
-status_options = ["Новый", "В работе", "Сделка", "Отказ", "Архив"]
+status_options = ["Новый", "В работе", "Одобрен", "Сделка", "Подписание", "Выдача", "Отказ", "Архив"]
 loan_type_options = ["Ипотека", "Залог"]
 
-# Helper function for formatted number input
+# Helper function
+# --- LibreOffice Conversion Function ---
+# --- LibreOffice Conversion Function (ИСПРАВЛЕННАЯ ВЕРСИЯ) ---
+def convert_docx_to_pdf_libreoffice(source_docx, output_dir):
+    """
+    Конвертирует docx в pdf используя LibreOffice в headless режиме.
+    Использует изолированный профиль пользователя для стабильности на macOS.
+    """
+    # Путь к LibreOffice на macOS (стандартный)
+    libreoffice_path = '/Applications/LibreOffice.app/Contents/MacOS/soffice'
+    
+    # 1. Проверяем наличие файла DOCX
+    if not os.path.exists(source_docx):
+        st.error(f"❌ Исходный файл не найден: {source_docx}")
+        return False
+    
+    # 2. Проверяем наличие LibreOffice
+    if not os.path.exists(libreoffice_path):
+        st.error(f"❌ LibreOffice не найден! Установите его в /Applications.\nПуть: {libreoffice_path}")
+        return False
+    
+    # 3. Создаем временную папку для профиля пользователя
+    # Это "серебряная пуля" для Mac: LibreOffice думает, что он запущен первым и единственным.
+    user_profile_dir = os.path.join(output_dir, 'LO_User')
+    os.makedirs(user_profile_dir, exist_ok=True)
+
+    # 4. Формируем команду
+    args = [
+        libreoffice_path,
+        f'-env:UserInstallation=file://{user_profile_dir}', # Изолированный профиль
+        '--headless',
+        '--invisible',
+        '--nodefault',
+        '--nofirststartwizard',
+        '--nolockcheck',
+        '--norestore',
+        '--convert-to', 'pdf',
+        '--outdir', output_dir,
+        source_docx
+    ]
+    
+    try:
+        # Запускаем процесс
+        process = subprocess.run(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=60  # Даем чуть больше времени
+        )
+        
+        # Проверяем результат
+        expected_pdf = os.path.join(
+            output_dir, 
+            os.path.splitext(os.path.basename(source_docx))[0] + '.pdf'
+        )
+        
+        if os.path.exists(expected_pdf) and os.path.getsize(expected_pdf) > 0:
+            return True
+        else:
+            # Если файл не создан, выводим ошибку из LibreOffice
+            err_msg = process.stderr.decode() if process.stderr else "Нет описания ошибки"
+            st.error(f"❌ PDF не создан. Ошибка LibreOffice:\n{err_msg}")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        st.error("❌ Время ожидания истекло (LibreOffice завис).")
+        return False
+    except Exception as e:
+        st.error(f"❌ Системная ошибка: {e}")
+        return False
+
+# --- Formatted Number Input ---
+
+# --- Formatted Number Input (ИСПРАВЛЕННАЯ ВЕРСИЯ - без лишних отступов) ---
 def formatted_number_input(label, key, allow_float=False, value=None):
     if key not in st.session_state:
         if value is not None and (isinstance(value, (int, float)) and value > 0):
-            # Initialize with provided value
             if allow_float:
                 st.session_state[key] = f"{value:,}".replace(",", " ")
             else:
                 st.session_state[key] = f"{int(value):,}".replace(",", " ")
         else:
             st.session_state[key] = ""
-
-
+        
     def on_change():
         val = st.session_state[key]
         if allow_float:
-            # allow digits and one dot/comma
             val = val.replace(',', '.')
             clean = ''.join(c for c in val if c.isdigit() or c == '.')
             if clean.count('.') > 1:
@@ -58,10 +128,8 @@ def formatted_number_input(label, key, allow_float=False, value=None):
             else:
                 st.session_state[key] = ""
         else:
-            # remove non-digits
             clean = ''.join(c for c in val if c.isdigit())
             if clean:
-                # format with spaces
                 formatted = "{:,}".format(int(clean)).replace(",", " ")
                 st.session_state[key] = formatted
             else:
@@ -81,42 +149,6 @@ def formatted_number_input(label, key, allow_float=False, value=None):
         return int(clean) if clean else 0
 
 # --- LibreOffice Conversion Function ---
-def convert_docx_to_pdf_libreoffice(source_docx, output_dir):
-    """
-    Конвертирует docx в pdf используя LibreOffice в headless режиме.
-    Требует установленного LibreOffice.
-    """
-    # Попытка найти путь к LibreOffice в зависимости от ОС
-    if sys.platform == 'darwin':  # macOS
-        libreoffice_path = '/Applications/LibreOffice.app/Contents/MacOS/soffice'
-    elif sys.platform == 'win32': # Windows
-        libreoffice_path = r'C:\Program Files\LibreOffice\program\soffice.exe'
-    else: # Linux
-        libreoffice_path = 'libreoffice'
-
-    # Команда запуска
-    args = [
-        libreoffice_path,
-        '--headless',
-        '--convert-to', 'pdf',
-        '--outdir', output_dir,
-        source_docx
-    ]
-    
-    # Запуск процесса
-    try:
-        subprocess.run(args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        return True
-    except FileNotFoundError:
-        st.error("❌ LibreOffice не найден! Установите LibreOffice или проверьте путь в коде.")
-        return False
-    except subprocess.CalledProcessError as e:
-        st.error(f"❌ Ошибка конвертации LibreOffice: {e}")
-        return False
-    except Exception as e:
-        st.error(f"❌ Неизвестная ошибка: {e}")
-        return False
-
 def fill_pdf_form(template_path, data):
     """Fills a PDF form using pypdf."""
     try:
@@ -456,7 +488,7 @@ if 'migration_done' not in st.session_state:
 if "page" not in st.session_state:
     query_params = st.query_params
     query_page = query_params.get("page")
-    if query_page and query_page in ["Новый клиент", "Карточка Клиента", "База Клиентов", "База Банков"]:
+    if query_page and query_page in ["Новый клиент", "Карточка Клиента", "База Клиентов", "База Банков", "Рабочий стол"]:
         st.session_state.page = query_page
     else:
         st.session_state.page = "Новый клиент"
@@ -466,7 +498,7 @@ def navigate_to(page):
     st.query_params["page"] = page
 
 # Top Menu
-pages = ["Новый клиент", "Карточка Клиента", "База Клиентов", "База Банков"]
+pages = ["Новый клиент", "Карточка Клиента", "База Клиентов", "База Банков", "Рабочий стол"]
 if st.session_state.page not in pages:
     st.session_state.page = "Новый клиент"
 
@@ -493,7 +525,7 @@ if selected_page != st.session_state.page:
 def render_client_form(client_data=None, key_prefix=""):
     # Default values for new client
     default_fio = client_data.get('fio') or '' if client_data else ''
-    status_options = ["Новый", "В работе", "Одобрен", "Сделка", "Отказ", "Архив"]
+    status_options = ["Новый", "В работе", "Одобрен", "Сделка", "Подписание", "Выдача", "Отказ", "Архив"]
     default_status = client_data.get('status', None) if client_data else None
     loan_type_options = ["Ипотека", "Залог"]
     default_loan_type = client_data.get('loan_type', None) if client_data else None
@@ -1109,7 +1141,11 @@ def render_client_form(client_data=None, key_prefix=""):
         "pledge_amount": pledge_amount,
         "mosgorsud_comment": mosgorsud_comment,
         "fssp_comment": fssp_comment,
-        "block_comment": block_comment
+        "block_comment": block_comment,
+        
+        # PRESERVE HIDDEN FIELDS (Prevent Data Loss on Edit)
+        "bank_interactions": client_data.get('bank_interactions') if client_data else None,
+        "yandex_link": client_data.get('yandex_link') if client_data else None
     }
     
     return data
@@ -1406,7 +1442,12 @@ elif selected_page == "Карточка Клиента":
                 style_overrides={"noOptionsMessage": {"display": "none"}}
             )
         if selected_name:
-            client = df[df["fio"] == selected_name].iloc[0].to_dict()
+            filtered = df[df["fio"] == selected_name]
+            if not filtered.empty:
+                client = filtered.iloc[0].to_dict()
+            else:
+                st.error(f"Клиент '{selected_name}' не найден в базе.")
+                st.stop()
             
 
             st.write(f"**Яндекс Диск:** {client.get('yandex_link', 'Нет ссылки')}")
@@ -1611,16 +1652,16 @@ elif selected_page == "Карточка Клиента":
                                         buf.seek(0)
                                         
                                         # Auto-upload to Yandex Disk (DOCX)
-                                        with st.spinner("Загрузка DOCX на Яндекс.Диск..."):
-                                            target_folder = get_client_folder_name(client)
-                                            download_name = f"{bank_folder_name} {tpl_name.replace('.docx', '')} {date.today().strftime('%d_%m_%y')}.docx"
+                                        # with st.spinner("Загрузка DOCX на Яндекс.Диск..."):
+                                        #    target_folder = get_client_folder_name(client)
+                                        download_name = f"{bank_folder_name} {tpl_name.replace('.docx', '')} {date.today().strftime('%d_%m_%y')}.docx"
                                             
-                                            buf.seek(0)
-                                            if upload_to_yandex(buf, target_folder, download_name):
-                                                st.toast(f"✅ {download_name} загружен!", icon="☁️")
-                                            else:
-                                                st.toast(f"❌ Не удалось загрузить {download_name}", icon="⚠️")
-                                            buf.seek(0)
+                                        #    buf.seek(0)
+                                        #    if upload_to_yandex(buf, target_folder, download_name):
+                                        #        st.toast(f"✅ {download_name} загружен!", icon="☁️")
+                                        #    else:
+                                        #        st.toast(f"❌ Не удалось загрузить {download_name}", icon="⚠️")
+                                        #    buf.seek(0)
 
                                         d_col1, d_col2 = st.columns(2)
                                         with d_col1:
@@ -1640,6 +1681,7 @@ elif selected_page == "Карточка Клиента":
                                                         with tempfile.TemporaryDirectory() as temp_dir:
                                                             temp_docx = os.path.join(temp_dir, f"temp_source.docx")
                                                             with open(temp_docx, "wb") as f:
+                                                                buf.seek(0)
                                                                 f.write(buf.getvalue())
                                                             
                                                             success = convert_docx_to_pdf_libreoffice(temp_docx, temp_dir)
@@ -1652,12 +1694,12 @@ elif selected_page == "Карточка Клиента":
                                                                     st.success("✅ PDF сформирован!")
                                                                     
                                                                     # Auto-upload to Yandex Disk (PDF)
-                                                                    target_folder = get_client_folder_name(client)
-                                                                    pdf_name_upload = download_name.replace('.docx', '.pdf')
-                                                                    with st.spinner("Загрузка PDF на Яндекс.Диск..."):
-                                                                         pdf_io = io.BytesIO(pdf_bytes)
-                                                                         if upload_to_yandex(pdf_io, target_folder, pdf_name_upload):
-                                                                             st.toast(f"✅ PDF загружен!", icon="☁️")
+                                                                    # target_folder = get_client_folder_name(client)
+                                                                    # pdf_name_upload = download_name.replace('.docx', '.pdf')
+                                                                    # with st.spinner("Загрузка PDF на Яндекс.Диск..."):
+                                                                    #     pdf_io = io.BytesIO(pdf_bytes)
+                                                                    #     if upload_to_yandex(pdf_io, target_folder, pdf_name_upload):
+                                                                    #         st.toast(f"✅ PDF загружен!", icon="☁️")
                                                             else:
                                                                 st.error("Файл PDF не был создан.")
                                                     except Exception as e:
@@ -1678,12 +1720,12 @@ elif selected_page == "Карточка Клиента":
                                                 download_name = f"{bank_folder_name} {tpl_name.replace('.pdf', '')} {date.today().strftime('%d_%m_%y')}.pdf"
                                                 
                                                 # Auto-upload
-                                                target_folder = get_client_folder_name(client)
-                                                pdf_io = io.BytesIO(filled_pdf_bytes)
-                                                if upload_to_yandex(pdf_io, target_folder, download_name):
-                                                    st.toast(f"✅ {download_name} загружен!", icon="☁️")
-                                                else:
-                                                    st.toast(f"❌ Не удалось загрузить {download_name}", icon="⚠️")
+                                                # target_folder = get_client_folder_name(client)
+                                                # pdf_io = io.BytesIO(filled_pdf_bytes)
+                                                # if upload_to_yandex(pdf_io, target_folder, download_name):
+                                                #     st.toast(f"✅ {download_name} загружен!", icon="☁️")
+                                                # else:
+                                                #    st.toast(f"❌ Не удалось загрузить {download_name}", icon="⚠️")
                                                 
                                                 st.download_button(
                                                     label=f"Скачать PDF",
@@ -1809,7 +1851,9 @@ elif selected_page == "Карточка Клиента":
                     # Add Interaction
                     st.markdown("#### Добавить запись")
                     with st.form(key="card_add_inter_form"):
-                        new_stage = st.selectbox("Этап", ["Сделать","Отправлено", "Рассмотрение", "Доп. запрос", "Одобрено", "Отказ", "Сделка"], key="card_new_stage")
+                        # Unified Bank Stage Options
+                        BANK_STAGE_OPTIONS = ["Сделать", "Отправлено", "Рассмотрение", "Доп. запрос", "Одобрено", "Сделка", "Подписание", "Выдача", "Отказ", "Архив"]
+                        new_stage = st.selectbox("Этап", BANK_STAGE_OPTIONS, key="card_new_stage")
                         new_comment = st.text_area("Комментарий", key="card_new_comment")
                         
                         if st.form_submit_button("Добавить"):
@@ -2060,3 +2104,215 @@ elif selected_page == "База Банков":
         })
         st.success("Банк добавлен")
         st.rerun()
+
+# --- Page: Рабочий стол ---
+elif selected_page == "Рабочий стол":
+    st.title("🖥️ Рабочий стол")
+    
+    # 1. Load Data
+    all_clients = db.load_clients()
+    
+    if all_clients.empty:
+        st.info("База клиентов пуста.")
+    else:
+        # 2. Filters
+        # Mimicking "База клиентов" style: multiselects with collapsed labels
+        c_filter1, c_filter2 = st.columns(2)
+        with c_filter1:
+            # Status Filter
+            statuses = all_clients['status'].unique().tolist()
+            statuses = [s for s in statuses if s and str(s) != 'nan']
+            # Using multiselect for consistency with DB tab, allowing multiple status selection
+            selected_statuses = st.multiselect("Фильтр по статусу", options=statuses, placeholder="Выберите статус", label_visibility="collapsed")
+            
+        with c_filter2:
+            # Transaction Type Filter (loan_type)
+            loan_types = all_clients['loan_type'].unique().tolist()
+            loan_types = [lt for lt in loan_types if lt and str(lt) != 'nan']
+             # Using multiselect for consistency with DB tab
+            selected_types = st.multiselect("Фильтр по типу", options=loan_types, placeholder="Выберите тип сделки", label_visibility="collapsed")
+            
+        # 3. Apply Filters
+        filtered_df = all_clients.copy()
+        
+        # Filter by selected statuses (if any selected)
+        if selected_statuses:
+             filtered_df = filtered_df[filtered_df['status'].isin(selected_statuses)]
+             
+        # Filter by selected types (if any selected)
+        if selected_types:
+            filtered_df = filtered_df[filtered_df['loan_type'].isin(selected_types)]
+            
+        
+        # 4. Display Clients
+        if filtered_df.empty:
+            st.warning("Нет клиентов, соответствующих фильтрам.")
+        else:
+            for index, client in filtered_df.iterrows():
+                with st.container(border=True):
+                    # Header: FIO + Status | Credit Sum + Type + Address
+                    # Using HTML for tight control over spacing
+                    c_head1, c_head2 = st.columns([3, 1])
+                    
+                    fio = client.get('fio', 'Без имени')
+                    status = client.get('status', 'Новый')
+                    
+                    credit_sum = safe_int(client.get('credit_sum', 0))
+                    credit_sum_str = f"{credit_sum:,}".replace(",", " ")
+                    
+                    obj_type = client.get('obj_type', '')
+                    if not obj_type or str(obj_type) == 'nan':
+                        obj_type = '-'
+                        
+                    # Build full address string
+                    addr_parts = [
+                        str(client.get('obj_city', '')), 
+                        str(client.get('obj_street', ''))
+                    ]
+                    # Filter out empty/nano parts
+                    addr_clean = [p for p in addr_parts if p and p != 'nan' and p != 'None']
+                    obj_addr = ", ".join(addr_clean) if addr_clean else "-"
+
+                    with c_head1:
+                        # FIO + Status (Compact)
+                        st.markdown(f"""
+                        <div style="margin-bottom: 2px;">
+                            <span style="font-size: 20px; font-weight: bold;">👤 {fio}</span>
+                            <span style="font-size: 14px; background-color: #f0f2f6; padding: 2px 8px; border-radius: 4px; margin-left: 10px; color: #31333F;">{status}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                       
+                    with c_head2:
+                        # Sum (smaller font) -> Obj Type -> Address
+                        st.markdown(f"""
+                        <div style="text-align: right; line-height: 1.2;">
+                            <div style="font-size: 12px; color: #888;">Сумма</div>
+                            <div style="font-size: 18px; font-weight: bold;">{credit_sum_str}</div>
+                            <div style="font-size: 12px; color: #333; margin-top: 4px;">{obj_type}</div>
+                            <div style="font-size: 11px; color: #666;">{obj_addr}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    # Bank Interactions (Compact)
+                    interactions_json = client.get('bank_interactions')
+                    interactions = []
+                    try:
+                        if interactions_json and str(interactions_json) != 'nan':
+                            interactions = json.loads(interactions_json)
+                    except:
+                        interactions = []
+                        
+                    if interactions:
+                        st.markdown("**🏦 Работа с банками:**")
+                        for inter in interactions:
+                            # inter: {bank_name, stage, comment, date}
+                            bank = inter.get('bank_name', 'Неизвестный банк')
+                            stage = inter.get('stage', '-')
+                            comment = inter.get('comment', '-')
+                            
+                            # Sanitize comment to avoid Markdown rendering issues (huge fonts, etc)
+                            if comment:
+                                comment = str(comment).replace('\n', ' ').replace('#', '').replace('*', '').replace('_', '')
+                            
+                            # Compact line: [Bank] Stage: Comment
+                            st.caption(f"🔹 {bank} | *{stage}* : {comment}")
+                    else:
+                        st.caption("Нет взаимодействий с банками.")
+                        
+                    # --- Action Buttons ---
+                    # Adjust column widths to avoid wrapping "Редактировать клиента" text
+                    c_btn1, c_btn2, _ = st.columns([1.5, 1.5, 3])
+                    edit_key = f"edit_banks_{client['id']}"
+                    if edit_key not in st.session_state:
+                         st.session_state[edit_key] = False
+
+                    with c_btn1:
+                         if st.button("✏️ Редактировать клиента", key=f"btn_edit_client_{client['id']}"):
+                            st.session_state.editing_client_id = client['id']
+                            st.session_state.page = "Новый клиент" 
+                            st.rerun()
+                    
+                    with c_btn2:
+                        toggle_label = "❌ Закрыть" if st.session_state[edit_key] else "✏️ Редактировать банки"
+                        if st.button(toggle_label, key=f"btn_edit_banks_{client['id']}"):
+                            st.session_state[edit_key] = not st.session_state[edit_key]
+                            st.rerun()
+
+                    if st.session_state[edit_key]:
+                        st.markdown("---")
+                        st.markdown("**Редактирование взаимодействий:**")
+                        # --- Inline Editor ---
+                        # Prepare data for editor
+                        
+                        # Define options constant
+                        BANK_STAGE_OPTIONS = ["Сделать", "Отправлено", "Рассмотрение", "Доп. запрос", "Одобрено", "Сделка", "Подписание", "Выдача", "Отказ", "Архив"]
+
+                        current_interactions = []
+                        if interactions_json and str(interactions_json) != 'nan':
+                            try:
+                                current_interactions = json.loads(interactions_json)
+                            except:
+                                pass
+                        
+                        # Convert to DataFrame
+                        df_inter = pd.DataFrame(current_interactions)
+                        if df_inter.empty:
+                            df_inter = pd.DataFrame(columns=["bank_name", "stage", "comment", "date"])
+                        
+                        # Standardize columns
+                        for col in ["bank_name", "stage", "comment", "date"]:
+                            if col not in df_inter.columns:
+                                df_inter[col] = ""
+                                
+                        # Handle Date objects for editor
+                        if "date" in df_inter.columns:
+                            df_inter["date"] = pd.to_datetime(df_inter["date"], errors="coerce")
+
+                        # Merge options with existing stages to preserve custom data
+                        existing_stages = [s for s in df_inter['stage'].unique() if s]
+                        combined_stages = sorted(list(set(BANK_STAGE_OPTIONS + existing_stages)), key=lambda x: BANK_STAGE_OPTIONS.index(x) if x in BANK_STAGE_OPTIONS else 999)
+
+                        edited_interactions = st.data_editor(
+                            df_inter,
+                            num_rows="dynamic",
+                            column_config={
+                                "bank_name": st.column_config.TextColumn("Банк", width="medium"),
+                                "stage": st.column_config.SelectboxColumn(
+                                    "Этап", 
+                                    width="medium",
+                                    options=combined_stages,
+                                    required=True
+                                ),
+                                "comment": st.column_config.TextColumn("Комментарий", width="large"),
+                                "date": st.column_config.DateColumn("Дата", format="DD.MM.YYYY")
+                            },
+                            key=f"editor_{client['id']}",
+                            use_container_width=True
+                        )
+                        
+                        if st.button("💾 Сохранить", key=f"save_banks_{client['id']}"):
+                            # Save logic
+                            # Convert date column back to string for JSON serialization
+                            if "date" in edited_interactions.columns:
+                                edited_interactions["date"] = edited_interactions["date"].apply(lambda x: x.strftime('%Y-%m-%d') if pd.notnull(x) else None)
+                                
+                            new_interactions = edited_interactions.to_dict(orient="records")
+                            new_json = json.dumps(new_interactions, ensure_ascii=False)
+                            
+                            # Update DB
+                            # We load fresh DB to avoid collisions
+                            curr_db = db.load_clients()
+                            # Ensure ID types match
+                            curr_db['id'] = curr_db['id'].astype(str)
+                            c_id = str(client['id']).replace('.0', '')
+                            
+                            idx = curr_db[curr_db['id'] == c_id].index
+                            if not idx.empty:
+                                curr_db.at[idx[0], 'bank_interactions'] = new_json
+                                db.save_all_clients(curr_db)
+                                st.success("Сохранено!")
+                                st.session_state[edit_key] = False
+                                st.rerun()
+                            else:
+                                st.error("Ошибка обновления: клиент не найден")
