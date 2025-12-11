@@ -16,6 +16,26 @@ import json
 import pypdf
 import io
 import urllib.parse
+import re
+
+# --- Performance Optimization: Caching ---
+@st.cache_data(show_spinner=False)
+def get_cached_clients():
+    return db.load_clients()
+
+@st.cache_data(show_spinner=False)
+def get_cached_banks():
+    return db.load_banks()
+
+@st.cache_data(show_spinner=False)
+def get_cached_applications():
+    return db.load_applications()
+
+def clear_cache():
+    get_cached_clients.clear()
+    get_cached_banks.clear()
+    get_cached_applications.clear()
+
 # --- Configuration ---
 YANDEX_TOKEN = "y0__xCF7vSyBhj0hTwg2oaewBUWNr9rdgvFpxw2k559OGkSU4o9VA"
 FONTS_DIR = 'fonts'
@@ -402,19 +422,257 @@ def upload_to_yandex(file_obj, folder_name, filename):
         st.error(f"Не удалось получить ссылку для загрузки. Ответ Яндекса: {res}")
         return False
 
+# --- Shared Document Generator ---
+def render_docs_generator(client, selected_bank, key_suffix, banks_list=None):
+    """
+    Renders the document generation UI (Templates list -> Generate -> Download).
+    """
+    if not selected_bank:
+        st.info("Выберите банк для отображения шаблонов.")
+        return
+
+    selected_bank_name = selected_bank.get('name')
+    # Templates
+    # Use transliterated folder name
+    bank_folder_name = transliterate(selected_bank_name)
+    bank_tpl_dir = os.path.join(TEMPLATES_DIR, bank_folder_name)
+    common_tpl_dir = os.path.join(TEMPLATES_DIR, "common")
+    
+    # Check dirs
+    templates_found = []
+    if os.path.exists(bank_tpl_dir):
+        templates_found.extend([(f, os.path.join(bank_tpl_dir, f)) for f in os.listdir(bank_tpl_dir) if (f.endswith('.docx') or f.endswith('.pdf')) and not f.startswith('~$')])
+    if os.path.exists(common_tpl_dir):
+        templates_found.extend([(f, os.path.join(common_tpl_dir, f)) for f in os.listdir(common_tpl_dir) if (f.endswith('.docx') or f.endswith('.pdf')) and not f.startswith('~$')])
+        
+    if not templates_found:
+        st.caption(f"Шаблоны не найдены (папка templates/{bank_folder_name}).")
+    else:
+        templates_found.sort(key=lambda x: x[0])
+        cols = st.columns(3)
+        for i, (tpl_name, tpl_path) in enumerate(templates_found):
+            # Unique key for every client+bank+template combo
+            btn_key = f"gen_{key_suffix}_{tpl_name}_{i}"
+            if cols[i % 3].button(f"📄 {tpl_name}", key=btn_key):
+                try:
+                    # Create Context (Shared)
+                    # Логика сборки адреса объекта в одну строку
+                    obj_parts = [
+                        clean_int_str(client.get('obj_index', '')),
+                        str(client.get('obj_region', '')).replace('nan', '').replace('None', ''),
+                        str(client.get('obj_city', '')).replace('nan', '').replace('None', ''),
+                        str(client.get('obj_street', '')).replace('nan', '').replace('None', ''),
+                        f"д. {clean_int_str(client.get('obj_house', ''))}" if client.get('obj_house') and str(client.get('obj_house')) != 'nan' else "",
+                        f"корп. {clean_int_str(client.get('obj_korpus', ''))}" if client.get('obj_korpus') and str(client.get('obj_korpus')) != 'nan' else "",
+                        f"стр. {clean_int_str(client.get('obj_structure', ''))}" if client.get('obj_structure') and str(client.get('obj_structure')) != 'nan' else "",
+                        f"кв. {clean_int_str(client.get('obj_flat', ''))}" if client.get('obj_flat') and str(client.get('obj_flat')) != 'nan' else ""
+                    ]
+                    # Удаляем пустые элементы и склеиваем
+                    full_obj_addr = ", ".join([p for p in obj_parts if p and p.strip()])
+
+                    # Вычисляем срок в месяцах
+                    term_years = safe_int(client.get('loan_term', 0))
+                    term_months = term_years * 12
+
+                    context = {
+                        'fio': client.get('fio', ''),
+                        'phone': clean_int_str(client.get('phone', '')),
+                        'email': str(client.get('email', '')).replace('nan', ''),
+                        
+                        # Паспорт
+                        'passport_ser': clean_int_str(client.get('passport_ser', '')),
+                        'passport_num': clean_int_str(client.get('passport_num', '')),
+                        'passport_issued': str(client.get('passport_issued', '')).replace('nan', ''),
+                        'passport_date': pd.to_datetime(client.get('passport_date')).strftime('%d.%m.%Y') if pd.notna(client.get('passport_date')) else "",
+                        'dob': pd.to_datetime(client.get('dob')).strftime('%d.%m.%Y') if pd.notna(client.get('dob')) else "",
+                        'birth_place': str(client.get('birth_place', '')).replace('nan', ''),
+                        'kpp': str(client.get('kpp', '')).replace('nan', ''),
+                        'inn': str(client.get('inn', '')).replace('nan', ''),
+                        'snils': clean_int_str(client.get('snils', '')),
+                        
+                        # Адрес регистрации (по частям)
+                        'addr_index': clean_int_str(client.get('addr_index', '')),
+                        'addr_city': str(client.get('addr_city', '')).replace('nan', ''),
+                        'addr_street': str(client.get('addr_street', '')).replace('nan', ''),
+                        'addr_house': clean_int_str(client.get('addr_house', '')),
+                        'addr_flat': clean_int_str(client.get('addr_flat', '')),
+                        'addr_korpus': clean_int_str(client.get('addr_korpus', '')),
+                        'addr_structure': clean_int_str(client.get('addr_structure', '')),
+                        'addr_region': str(client.get('addr_region', '')).replace('nan', '').replace('None', ''),
+                        
+                        # Адрес регистрации (ПОЛНЫЙ СТРОКОЙ)
+                        'addr_reg': ", ".join(filter(None, [
+                            clean_int_str(client.get('addr_index', '')),
+                            str(client.get('addr_region', '')).replace('nan', '').replace('None', ''),
+                            str(client.get('addr_city', '')).replace('nan', '').replace('None', ''),
+                            str(client.get('addr_street', '')).replace('nan', '').replace('None', ''),
+                            f"д. {clean_int_str(client.get('addr_house', ''))}" if client.get('addr_house') and str(client.get('addr_house')) != 'nan' else "",
+                            f"корп. {clean_int_str(client.get('addr_korpus', ''))}" if client.get('addr_korpus') and str(client.get('addr_korpus')) != 'nan' else "",
+                            f"стр. {clean_int_str(client.get('addr_structure', ''))}" if client.get('addr_structure') and str(client.get('addr_structure')) != 'nan' else "",
+                            f"кв. {clean_int_str(client.get('addr_flat', ''))}" if client.get('addr_flat') and str(client.get('addr_flat')) != 'nan' else ""
+                        ])),
+
+                        # --- НОВОЕ: Адрес залога (ПОЛНЫЙ СТРОКОЙ) ---
+                        'obj_addr': full_obj_addr,
+
+                        # Данные банка и кредита
+                        'bank_name': selected_bank_name,
+                        'credit_sum': client.get('credit_sum', 0),
+                        
+                        # Сроки кредита
+                        'loan_term': term_years,       # В годах (например: 15)
+                        'loan_term_months': term_months, # В месяцах (например: 180)
+                        
+                        'today': date.today().strftime("%d.%m.%Y"),
+                        
+                        # Работа
+                        'job_company': str(client.get('job_company', '')).replace('nan', ''),
+                        'job_pos': str(client.get('job_pos', '')).replace('nan', ''),
+                        'job_income': clean_int_str(client.get('job_income', '')),
+                        'job_phone': clean_int_str(client.get('job_phone', '')),
+                        'job_inn': clean_int_str(client.get('job_inn', '')),
+                        'job_ceo': str(client.get('job_ceo', '')).replace('nan', ''),
+                        'job_address': str(client.get('job_address', '')).replace('nan', ''),
+                        'total_exp': clean_int_str(client.get('total_exp', '')),
+                        
+                        # Личные данные (добавлено)
+                        'family_status': client.get('family_status', ''),
+                        'gender': client.get('gender', ''),
+                        'children_count': clean_int_str(client.get('children_count', '')),
+                        'children_dates': str(client.get('children_dates', '')).replace('nan', '') if safe_int(client.get('children_count', 0)) > 0 else "",
+                        
+                        # Работа (добавлено)
+                        'job_start_date': pd.to_datetime(client.get('job_start_date')).strftime('%d.%m.%Y') if pd.notna(client.get('job_start_date')) and str(client.get('job_start_date')) != 'None' else "",
+                        
+                        # Объект (добавлено)
+                        'obj_area': clean_int_str(client.get('obj_area', '')),
+                        'obj_floor': clean_int_str(client.get('obj_floor', '')),
+                        'obj_total_floors': clean_int_str(client.get('obj_total_floors', '')),
+                        'obj_walls': client.get('obj_walls', ''),
+                    }
+
+                    if tpl_name.endswith('.docx'):
+                        # --- DOCX Logic ---
+                        doc = DocxTemplate(tpl_path)
+                        doc.render(context)
+                        buf = io.BytesIO()
+                        doc.save(buf)
+                        buf.seek(0)
+                        
+                        download_name = f"{bank_folder_name} {tpl_name.replace('.docx', '')} {date.today().strftime('%d_%m_%y')}.docx"
+                        
+                        # Save to session (so buttons persist after rerun if needed, or just immediate use)
+                        st.session_state[f"docx_buf_{key_suffix}_{i}"] = buf
+                        st.session_state[f"docx_name_{key_suffix}_{i}"] = download_name
+
+                    elif tpl_name.endswith('.pdf'):
+                        # --- PDF Form Logic ---
+                        with st.spinner("Заполнение PDF формы..."):
+                            filled_pdf_bytes = fill_pdf_form(tpl_path, context)
+                            
+                            if filled_pdf_bytes:
+                                download_name = f"{bank_folder_name} {tpl_name.replace('.pdf', '')} {date.today().strftime('%d_%m_%y')}.pdf"
+                                st.session_state[f"pdf_pure_bytes_{key_suffix}_{i}"] = filled_pdf_bytes
+                                st.session_state[f"pdf_pure_name_{key_suffix}_{i}"] = download_name
+                                st.success("✅ PDF форма заполнена!")
+                            else:
+                                st.error("Ошибка при заполнении PDF.")
+
+                except Exception as e:
+                    st.error(f"Ошибка генерации: {e}")
+            
+            # Show download buttons if generated
+            # DOCX
+            if f"docx_buf_{key_suffix}_{i}" in st.session_state:
+                d_col1, d_col2 = st.columns(2)
+                with d_col1:
+                    st.download_button(
+                        label=f"📥 Скачать DOCX",
+                        data=st.session_state[f"docx_buf_{key_suffix}_{i}"],
+                        file_name=st.session_state[f"docx_name_{key_suffix}_{i}"],
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        key=f"dl_docx_{key_suffix}_{i}"
+                    )
+                with d_col2:
+                    # PDF Conversion
+                    if st.button("🔄 В PDF", key=f"to_pdf_{key_suffix}_{i}"):
+                         with st.spinner("Конвертация в PDF..."):
+                            try:
+                                with tempfile.TemporaryDirectory() as temp_dir:
+                                    temp_docx = os.path.join(temp_dir, f"temp_source.docx")
+                                    # Write buffer to temp file
+                                    buf = st.session_state[f"docx_buf_{key_suffix}_{i}"]
+                                    buf.seek(0)
+                                    with open(temp_docx, "wb") as f:
+                                        f.write(buf.getvalue())
+                                    
+                                    success = convert_docx_to_pdf_libreoffice(temp_docx, temp_dir)
+                                    if success:
+                                        created_pdf_path = os.path.join(temp_dir, "temp_source.pdf")
+                                        if os.path.exists(created_pdf_path):
+                                            with open(created_pdf_path, "rb") as f:
+                                                pdf_bytes = f.read()
+                                                st.session_state[f"pdf_conv_bytes_{key_suffix}_{i}"] = pdf_bytes
+                                                st.session_state[f"pdf_conv_name_{key_suffix}_{i}"] = st.session_state[f"docx_name_{key_suffix}_{i}"].replace('.docx', '.pdf')
+                            except Exception as e:
+                                st.error(f"Ошибка конвертации: {e}")
+
+                    if f"pdf_conv_bytes_{key_suffix}_{i}" in st.session_state:
+                         st.download_button(
+                            label="📥 Скачать PDF",
+                            data=st.session_state[f"pdf_conv_bytes_{key_suffix}_{i}"],
+                            file_name=st.session_state[f"pdf_conv_name_{key_suffix}_{i}"],
+                            mime="application/pdf",
+                            key=f"dl_conv_pdf_{key_suffix}_{i}"
+                        )
+            
+            # Pure PDF Form
+            if f"pdf_pure_bytes_{key_suffix}_{i}" in st.session_state:
+                 st.download_button(
+                    label=f"📥 Скачать PDF",
+                    data=st.session_state[f"pdf_pure_bytes_{key_suffix}_{i}"],
+                    file_name=st.session_state[f"pdf_pure_name_{key_suffix}_{i}"],
+                    mime="application/pdf",
+                    key=f"dl_pure_pdf_{key_suffix}_{i}"
+                )
+
 # --- CSS Styles ---
 hide_uploader_text = """
 <style>
-/* Hide the "Drag and drop..." text */
-[data-testid='stFileUploader'] section > div:first-child > span {
-    display: none;
+/* Try to access the text container more generally */
+[data-testid='stFileUploader'] section > div:first-child {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important; /* Move content to right */
+    gap: 10px;
 }
-/* Hide the "Limit 200MB..." text */
-[data-testid='stFileUploader'] section > div:first-child > small {
-    display: none;
+
+/* Hide the specific spans if possible */
+[data-testid='stFileUploader'] section > div:first-child > span, 
+[data-testid='stFileUploader'] section > div:first-child > small,
+[data-testid='stFileUploader'] section > div:first-child > div { /* Sometimes text is in a div */
+    display: none !important;
 }
+
+/* Re-enable display for the button container specifically if needed, 
+   but usually button is a direct child of the dropzone or wrapped in a div we might have just hidden.
+   Let's try a different approach: make the section a flex row and force button visibility */
+
+[data-testid='stFileUploader'] section {
+    padding: 0px !important;
+    min-height: 40px !important; /* Ensure enough height for button */
+    display: flex !important;
+    flex-direction: row !important; /* Side by side */
+    align-items: center !important;
+    justify-content: flex-end !important;
+}
+
+/* Hide the default text icon */
+[data-testid='stFileUploader'] section svg {
+    display: none !important;
+}
+
 /* Style the Browse button */
-/* We target the button INSIDE the section (dropzone) to avoid targeting delete buttons in the file list */
 [data-testid='stFileUploader'] section button {
     border: 1px solid #4CAF50;
     color: white;
@@ -422,7 +680,10 @@ hide_uploader_text = """
     border-radius: 5px;
     visibility: hidden; /* Hide original text */
     position: relative;
-    width: 150px;
+    width: 140px; 
+    height: 35px;
+    line-height: 0;
+    margin: 0 !important; /* Remove margins */
 }
 /* Hack to change button text */
 [data-testid='stFileUploader'] section button::after {
@@ -431,7 +692,7 @@ hide_uploader_text = """
     display: block;
     position: absolute;
     background-color: #4CAF50;
-    padding: 5px 10px;
+    padding: 0;
     top: 0;
     left: 0;
     right: 0;
@@ -440,12 +701,13 @@ hide_uploader_text = """
     align-items: center;
     justify-content: center;
     border-radius: 5px;
+    font-size: 14px;
 }
 
 /* Adjust Page Margins */
 .block-container {
-    padding-top: 3rem !important; /* Reduced by ~50% (default is usually ~6rem) */
-    padding-left: 10rem !important; /* Increased side margins (default is usually ~5rem) */
+    padding-top: 3rem !important;
+    padding-left: 10rem !important;
     padding-right: 10rem !important;
     max-width: 100% !important;
 }
@@ -462,7 +724,7 @@ st.title("СОКОЛ")
 # This runs once per rerun, but we can optimize to run only if needed.
 # For simplicity, we check if any client has empty surname but present FIO.
 if 'migration_done' not in st.session_state:
-    migration_df = db.load_clients()
+    migration_df = get_cached_clients()
     if not migration_df.empty and 'fio' in migration_df.columns:
         changed = False
         for index, row in migration_df.iterrows():
@@ -476,6 +738,7 @@ if 'migration_done' not in st.session_state:
         
         if changed:
             db.save_all_clients(migration_df)
+            get_cached_clients.clear() # Clear cache after auto-migration save
             st.toast("✅ База данных обновлена: ФИО разделены на части.")
     
     st.session_state['migration_done'] = True
@@ -522,7 +785,109 @@ if selected_page != st.session_state.page:
     st.rerun()
 
 # Helper function to render the client form (for both new and edit)
+
+def generate_yandex_mail_link(client, selected_bank):
+    emails_to = []
+    # Prefer manager email, otherwise use first available
+    if selected_bank.get('manager_email') and str(selected_bank.get('manager_email')) != "nan":
+        emails_to.append(str(selected_bank.get('manager_email')))
+    
+    emails_cc = []
+    if selected_bank.get('email2') and str(selected_bank.get('email2')) != "nan":
+        emails_cc.append(str(selected_bank.get('email2')))
+    if selected_bank.get('email3') and str(selected_bank.get('email3')) != "nan":
+        emails_cc.append(str(selected_bank.get('email3')))
+    
+    # If no manager email, use first CC as TO
+    if not emails_to and emails_cc:
+        emails_to.append(emails_cc.pop(0))
+        
+    # SUBJECT: Surname Name / ObjType Program City / CreditSum
+    c_surname = client.get('surname', '') or client.get('fio', '').split()[0]
+    c_name = client.get('name', '')
+    if not c_name and len(client.get('fio', '').split()) > 1:
+        c_name = client.get('fio', '').split()[1]
+    
+    subj_parts = [
+        f"{c_surname} {c_name}",
+        f"{client.get('obj_type', '')} {client.get('loan_type', '')} {client.get('obj_city', '')}",
+        f"{safe_int(client.get('credit_sum', 0)):,} руб."
+    ]
+    subj = " / ".join(filter(None, subj_parts))
+    subj = urllib.parse.quote(subj)
+    
+    # BODY Construction
+    lines = []
+    lines.append("Добрый день!")
+    lines.append(f"Прошу рассмотреть заявку по клиенту: {client.get('fio')}")
+    lines.append("")
+    lines.append("--- ПАРАМЕТРЫ СДЕЛКИ ---")
+    lines.append(f"Программа: {client.get('loan_type')}")
+    lines.append(f"Сумма кредита: {safe_int(client.get('credit_sum', 0)):,} руб.")
+    
+    lines.append("")
+    lines.append("--- ПОРТРЕТ КЛИЕНТА ---")
+    lines.append(f"Возраст: {safe_int(client.get('age', 0))} лет")
+    lines.append(f"Доход: {client.get('job_type')}")
+    
+    if client.get('has_coborrower') == 'Да':
+        lines.append("Созаемщик: ЕСТЬ")
+    
+    if client.get('assets') and str(client.get('assets')) != 'nan' and str(client.get('assets')) != 'None':
+            lines.append(f"Доп. активы: {client.get('assets')}")
+
+    lines.append("")
+    lines.append("--- ОБЪЕКТ ЗАЛОГА ---")
+    lines.append(f"Тип: {client.get('obj_type')}")
+    
+    addr_parts = [
+        clean_int_str(client.get('obj_index', '')), 
+        str(client.get('obj_region', '')),
+        str(client.get('obj_city', '')), 
+        str(client.get('obj_street', '')), 
+        f"д. {clean_int_str(client.get('obj_house', ''))}" if client.get('obj_house') and str(client.get('obj_house')) != 'nan' else "",
+        f"корп. {clean_int_str(client.get('obj_korpus', ''))}" if client.get('obj_korpus') and str(client.get('obj_korpus')) != 'nan' else "",
+        f"стр. {clean_int_str(client.get('obj_structure', ''))}" if client.get('obj_structure') and str(client.get('obj_structure')) != 'nan' else "",
+        f"кв. {clean_int_str(client.get('obj_flat', ''))}" if client.get('obj_flat') and str(client.get('obj_flat')) != 'nan' else ""
+    ]
+    full_addr = ", ".join([p for p in addr_parts if p and p != "nan" and p != "None" and p != ""])
+    lines.append(f"Адрес: {full_addr}")
+    
+    lines.append(f"Стоимость: {safe_int(client.get('obj_price', 0)):,} руб.")
+    
+    if client.get('is_pledged') == 'Да':
+        lines.append(f"Обременение: ЕСТЬ ({client.get('pledge_bank')}, остаток {safe_int(client.get('pledge_amount', 0)):,} руб.)")
+    else:
+        lines.append("Обременение: НЕТ")
+        
+    lines.append(f"Правоустановка: {client.get('obj_doc_type')} от {pd.to_datetime(client.get('obj_date')).strftime('%d.%m.%Y') if pd.notna(client.get('obj_date')) else ''}")
+    
+    if client.get('obj_renovation') == 'Да':
+            lines.append("Реновация: ДА")
+
+    lines.append("")
+    lines.append("Отчет об оценке (ЦИАН):")
+    lines.append(str(client.get('cian_report_link', '')).replace('nan', '').replace('None', ''))
+
+    body_text = "\n".join(lines)
+    body = urllib.parse.quote(body_text)
+    
+    if emails_to:
+        to_str = ",".join(emails_to)
+        cc_str = ",".join(emails_cc)
+        
+        yandex_params = f"to={to_str}"
+        if cc_str:
+            yandex_params += f"&cc={cc_str}"
+        
+        yandex_params += f"&subj={subj}&body={body}"
+        yandex_mail_url = f"https://mail.yandex.ru/compose?{yandex_params}"
+        
+        return yandex_mail_url
+    return None
+
 def render_client_form(client_data=None, key_prefix=""):
+
     # Default values for new client
     default_fio = client_data.get('fio') or '' if client_data else ''
     status_options = ["Новый", "В работе", "Одобрен", "Сделка", "Подписание", "Выдача", "Отказ", "Архив"]
@@ -1158,8 +1523,8 @@ if selected_page == "Новый клиент":
     
     if edit_client_id:
         st.header("✏️ Редактирование клиента")
-        # Load fresh data from DB to ensure we have latest
-        all_clients = db.load_clients()
+        # Load fresh data from DB to ensure we have latest (using cache is fine if we invalidate correctly)
+        all_clients = get_cached_clients()
         if not all_clients.empty and edit_client_id in all_clients['id'].values:
             edit_client_data = all_clients[all_clients['id'] == edit_client_id].iloc[0].to_dict()
         else:
@@ -1198,6 +1563,7 @@ if selected_page == "Новый клиент":
                         data[key] = str(val)
                 
                 db.save_client(data)
+                get_cached_clients.clear() # Clear cache
                 st.success(f"Данные клиента {data['fio']} обновлены!")
                 st.session_state.editing_client_id = None # Exit edit mode
                 time.sleep(1)
@@ -1237,13 +1603,14 @@ if selected_page == "Новый клиент":
                             data[key] = str(val)
                             
                     db.save_client(data)
+                    get_cached_clients.clear() # Clear cache
                     st.success(f"Клиент {form_data['fio']} сохранен!")
 
 # --- Page: База Клиентов ---
 elif selected_page == "База Клиентов":
     st.title("📂 База Клиентов")
     
-    df = db.load_clients()
+    df = get_cached_clients()
     
 
 
@@ -1412,13 +1779,14 @@ elif selected_page == "База Клиентов":
                         current_db.at[curr_idx, 'total_exp'] = new_total_exp
                 
                 db.save_all_clients(current_db)
+                get_cached_clients.clear() # Clear cache
                 st.success("✅ Изменения сохранены!")
                 st.rerun()
 
 # --- Page: Карточка Клиента ---
 elif selected_page == "Карточка Клиента":
     st.title("🗂 Карточка Клиента")
-    df = db.load_clients()
+    df = get_cached_clients()
     if not df.empty:
         c_sel, _ = st.columns([1, 2])
         with c_sel:
@@ -1487,7 +1855,7 @@ elif selected_page == "Карточка Клиента":
             # --- Work with Banks Module (View Mode) ---
             with st.expander("🏦 Работа с банками", expanded=True):
                 # Load banks
-                banks_db = db.load_banks().to_dict('records')
+                banks_db = get_cached_banks().to_dict('records')
                 bank_names = [b['name'] for b in banks_db]
                 
                 # Parse existing interactions
@@ -1522,332 +1890,25 @@ elif selected_page == "Карточка Клиента":
                     
                     st.info(f"Менеджер: {selected_bank.get('manager_fio', '')} ([WhatsApp]({wa_url})){lk_display}" if wa_url else f"Менеджер: {selected_bank.get('manager_fio', '')}{lk_display}")
                     
-                    # Templates
                     st.markdown("#### 📄 Документы")
-                    # Use transliterated folder name
-                    bank_folder_name = transliterate(selected_bank_name)
-                    bank_tpl_dir = os.path.join(TEMPLATES_DIR, bank_folder_name)
-                    common_tpl_dir = os.path.join(TEMPLATES_DIR, "common")
-                    
-                    # Check dirs
-                    templates_found = []
-                    if os.path.exists(bank_tpl_dir):
-                        templates_found.extend([(f, os.path.join(bank_tpl_dir, f)) for f in os.listdir(bank_tpl_dir) if (f.endswith('.docx') or f.endswith('.pdf')) and not f.startswith('~$')])
-                    if os.path.exists(common_tpl_dir):
-                        templates_found.extend([(f, os.path.join(common_tpl_dir, f)) for f in os.listdir(common_tpl_dir) if (f.endswith('.docx') or f.endswith('.pdf')) and not f.startswith('~$')])
-                        
-                    if not templates_found:
-                        st.caption(f"Шаблоны не найдены (папка templates/{bank_folder_name}).")
-                    else:
-                        templates_found.sort(key=lambda x: x[0])
-                        cols = st.columns(3)
-                        for i, (tpl_name, tpl_path) in enumerate(templates_found):
-                            if cols[i % 3].button(f"Сформировать {tpl_name}", key=f"card_gen_{tpl_name}_{i}"):
-                                try:
-                                    # Create Context (Shared)
-                                    # --- ОБНОВЛЕННЫЙ КОТЕКСТ ---
-                                    # Логика сборки адреса объекта в одну строку
-                                    obj_parts = [
-                                        clean_int_str(client.get('obj_index', '')),
-                                        str(client.get('obj_region', '')).replace('nan', '').replace('None', ''),
-                                        str(client.get('obj_city', '')).replace('nan', '').replace('None', ''),
-                                        str(client.get('obj_street', '')).replace('nan', '').replace('None', ''),
-                                        f"д. {clean_int_str(client.get('obj_house', ''))}" if client.get('obj_house') and str(client.get('obj_house')) != 'nan' else "",
-                                        f"корп. {clean_int_str(client.get('obj_korpus', ''))}" if client.get('obj_korpus') and str(client.get('obj_korpus')) != 'nan' else "",
-                                        f"стр. {clean_int_str(client.get('obj_structure', ''))}" if client.get('obj_structure') and str(client.get('obj_structure')) != 'nan' else "",
-                                        f"кв. {clean_int_str(client.get('obj_flat', ''))}" if client.get('obj_flat') and str(client.get('obj_flat')) != 'nan' else ""
-                                    ]
-                                    # Удаляем пустые элементы и склеиваем
-                                    full_obj_addr = ", ".join([p for p in obj_parts if p and p.strip()])
-
-                                    # Вычисляем срок в месяцах
-                                    term_years = safe_int(client.get('loan_term', 0))
-                                    term_months = term_years * 12
-
-                                    # Create Context (Shared)
-                                    context = {
-                                        'fio': client.get('fio', ''),
-                                        'phone': clean_int_str(client.get('phone', '')),
-                                        'email': str(client.get('email', '')).replace('nan', ''),
-                                        
-                                        # Паспорт
-                                        'passport_ser': clean_int_str(client.get('passport_ser', '')),
-                                        'passport_num': clean_int_str(client.get('passport_num', '')),
-                                        'passport_issued': str(client.get('passport_issued', '')).replace('nan', ''),
-                                        'passport_date': pd.to_datetime(client.get('passport_date')).strftime('%d.%m.%Y') if pd.notna(client.get('passport_date')) else "",
-                                        'dob': pd.to_datetime(client.get('dob')).strftime('%d.%m.%Y') if pd.notna(client.get('dob')) else "",
-                                        'birth_place': str(client.get('birth_place', '')).replace('nan', ''),
-                                        'kpp': str(client.get('kpp', '')).replace('nan', ''),
-                                        'inn': str(client.get('inn', '')).replace('nan', ''),
-                                        'snils': clean_int_str(client.get('snils', '')),
-                                        
-                                        # Адрес регистрации (по частям)
-                                        'addr_index': clean_int_str(client.get('addr_index', '')),
-                                        'addr_city': str(client.get('addr_city', '')).replace('nan', ''),
-                                        'addr_street': str(client.get('addr_street', '')).replace('nan', ''),
-                                        'addr_house': clean_int_str(client.get('addr_house', '')),
-                                        'addr_flat': clean_int_str(client.get('addr_flat', '')),
-                                        'addr_korpus': clean_int_str(client.get('addr_korpus', '')),
-                                        'addr_structure': clean_int_str(client.get('addr_structure', '')),
-                                        'addr_region': str(client.get('addr_region', '')).replace('nan', '').replace('None', ''),
-                                        
-                                        # Адрес регистрации (ПОЛНЫЙ СТРОКОЙ)
-                                        'addr_reg': ", ".join(filter(None, [
-                                            clean_int_str(client.get('addr_index', '')),
-                                            str(client.get('addr_region', '')).replace('nan', '').replace('None', ''),
-                                            str(client.get('addr_city', '')).replace('nan', '').replace('None', ''),
-                                            str(client.get('addr_street', '')).replace('nan', '').replace('None', ''),
-                                            f"д. {clean_int_str(client.get('addr_house', ''))}" if client.get('addr_house') and str(client.get('addr_house')) != 'nan' else "",
-                                            f"корп. {clean_int_str(client.get('addr_korpus', ''))}" if client.get('addr_korpus') and str(client.get('addr_korpus')) != 'nan' else "",
-                                            f"стр. {clean_int_str(client.get('addr_structure', ''))}" if client.get('addr_structure') and str(client.get('addr_structure')) != 'nan' else "",
-                                            f"кв. {clean_int_str(client.get('addr_flat', ''))}" if client.get('addr_flat') and str(client.get('addr_flat')) != 'nan' else ""
-                                        ])),
-
-                                        # --- НОВОЕ: Адрес залога (ПОЛНЫЙ СТРОКОЙ) ---
-                                        'obj_addr': full_obj_addr,
-                                        # ---------------------------------------------
-
-                                        # Данные банка и кредита
-                                        'bank_name': selected_bank_name,
-                                        'credit_sum': client.get('credit_sum', 0),
-                                        
-                                        # Сроки кредита
-                                        'loan_term': term_years,       # В годах (например: 15)
-                                        'loan_term_months': term_months, # В месяцах (например: 180)
-                                        
-                                        'today': date.today().strftime("%d.%m.%Y"),
-                                        
-                                        # Работа
-                                        'job_company': str(client.get('job_company', '')).replace('nan', ''),
-                                        'job_pos': str(client.get('job_pos', '')).replace('nan', ''),
-                                        'job_income': clean_int_str(client.get('job_income', '')),
-                                        'job_phone': clean_int_str(client.get('job_phone', '')),
-                                        'job_inn': clean_int_str(client.get('job_inn', '')),
-                                        'job_ceo': str(client.get('job_ceo', '')).replace('nan', ''),
-                                        'job_address': str(client.get('job_address', '')).replace('nan', ''),
-                                        'total_exp': clean_int_str(client.get('total_exp', '')),
-                                        
-                                        # Личные данные (добавлено)
-                                        'family_status': client.get('family_status', ''),
-                                        'gender': client.get('gender', ''),
-                                        'children_count': clean_int_str(client.get('children_count', '')),
-                                        'children_dates': str(client.get('children_dates', '')).replace('nan', '') if safe_int(client.get('children_count', 0)) > 0 else "",
-                                        
-                                        # Работа (добавлено)
-                                        'job_start_date': pd.to_datetime(client.get('job_start_date')).strftime('%d.%m.%Y') if pd.notna(client.get('job_start_date')) and str(client.get('job_start_date')) != 'None' else "",
-                                        
-                                        # Объект (добавлено)
-                                        'obj_area': clean_int_str(client.get('obj_area', '')),
-                                        'obj_floor': clean_int_str(client.get('obj_floor', '')),
-                                        'obj_total_floors': clean_int_str(client.get('obj_total_floors', '')),
-                                        'obj_walls': client.get('obj_walls', ''),
-                                    }
-
-                                    if tpl_name.endswith('.docx'):
-                                        # --- DOCX Logic ---
-                                        doc = DocxTemplate(tpl_path)
-                                        doc.render(context)
-                                        buf = io.BytesIO()
-                                        doc.save(buf)
-                                        buf.seek(0)
-                                        
-                                        # Auto-upload to Yandex Disk (DOCX)
-                                        # with st.spinner("Загрузка DOCX на Яндекс.Диск..."):
-                                        #    target_folder = get_client_folder_name(client)
-                                        download_name = f"{bank_folder_name} {tpl_name.replace('.docx', '')} {date.today().strftime('%d_%m_%y')}.docx"
-                                            
-                                        #    buf.seek(0)
-                                        #    if upload_to_yandex(buf, target_folder, download_name):
-                                        #        st.toast(f"✅ {download_name} загружен!", icon="☁️")
-                                        #    else:
-                                        #        st.toast(f"❌ Не удалось загрузить {download_name}", icon="⚠️")
-                                        #    buf.seek(0)
-
-                                        d_col1, d_col2 = st.columns(2)
-                                        with d_col1:
-                                            st.download_button(
-                                                label=f"Скачать DOCX",
-                                                data=buf,
-                                                file_name=download_name,
-                                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                                key=f"dl_btn_docx_{tpl_name}_{i}"
-                                            )
-                                        
-                                        with d_col2:
-                                            pdf_key = f"pdf_data_{tpl_name}_{i}"
-                                            if st.button(f"Сформировать PDF", key=f"gen_pdf_{tpl_name}_{i}"):
-                                                with st.spinner("Конвертация в PDF через LibreOffice..."):
-                                                    try:
-                                                        with tempfile.TemporaryDirectory() as temp_dir:
-                                                            temp_docx = os.path.join(temp_dir, f"temp_source.docx")
-                                                            with open(temp_docx, "wb") as f:
-                                                                buf.seek(0)
-                                                                f.write(buf.getvalue())
-                                                            
-                                                            success = convert_docx_to_pdf_libreoffice(temp_docx, temp_dir)
-                                                            if success:
-                                                                created_pdf_path = os.path.join(temp_dir, "temp_source.pdf")
-                                                                if os.path.exists(created_pdf_path):
-                                                                    with open(created_pdf_path, "rb") as f:
-                                                                        pdf_bytes = f.read()
-                                                                        st.session_state[pdf_key] = pdf_bytes
-                                                                    st.success("✅ PDF сформирован!")
-                                                                    
-                                                                    # Auto-upload to Yandex Disk (PDF)
-                                                                    # target_folder = get_client_folder_name(client)
-                                                                    # pdf_name_upload = download_name.replace('.docx', '.pdf')
-                                                                    # with st.spinner("Загрузка PDF на Яндекс.Диск..."):
-                                                                    #     pdf_io = io.BytesIO(pdf_bytes)
-                                                                    #     if upload_to_yandex(pdf_io, target_folder, pdf_name_upload):
-                                                                    #         st.toast(f"✅ PDF загружен!", icon="☁️")
-                                                            else:
-                                                                st.error("Файл PDF не был создан.")
-                                                    except Exception as e:
-                                                        st.error(f"Ошибка процесса: {e}")
-                                            
-                                            if pdf_key in st.session_state:
-                                                pdf_name = download_name.replace('.docx', '.pdf')
-                                                st.download_button("Скачать PDF", st.session_state[pdf_key], pdf_name, "application/pdf", key=f"dl_btn_pdf_{pdf_key}")
-
-                                    elif tpl_name.endswith('.pdf'):
-                                        # --- PDF Form Logic ---
-                                        with st.spinner("Заполнение PDF формы..."):
-                                            filled_pdf_bytes = fill_pdf_form(tpl_path, context)
-                                            
-                                            if filled_pdf_bytes:
-                                                st.success("✅ PDF форма заполнена!")
-                                                
-                                                download_name = f"{bank_folder_name} {tpl_name.replace('.pdf', '')} {date.today().strftime('%d_%m_%y')}.pdf"
-                                                
-                                                # Auto-upload
-                                                # target_folder = get_client_folder_name(client)
-                                                # pdf_io = io.BytesIO(filled_pdf_bytes)
-                                                # if upload_to_yandex(pdf_io, target_folder, download_name):
-                                                #     st.toast(f"✅ {download_name} загружен!", icon="☁️")
-                                                # else:
-                                                #    st.toast(f"❌ Не удалось загрузить {download_name}", icon="⚠️")
-                                                
-                                                st.download_button(
-                                                    label=f"Скачать PDF",
-                                                    data=filled_pdf_bytes,
-                                                    file_name=download_name,
-                                                    mime="application/pdf",
-                                                    key=f"dl_btn_pdf_pure_{tpl_name}_{i}"
-                                                )
-                                            else:
-                                                st.error("Ошибка при заполнении PDF.")
-
-                                except Exception as e:
-                                    st.error(f"Ошибка генерации: {e}")
+                    render_docs_generator(client, selected_bank, "card", banks_db)
 
                     
+
                     # --- Email Generation ---
-                    
                     st.markdown("#### 📧 Письмо")
                     
-                    emails_to = []
-                    # Prefer manager email, otherwise use first available
-                    if selected_bank.get('manager_email') and str(selected_bank.get('manager_email')) != "nan":
-                        emails_to.append(str(selected_bank.get('manager_email')))
+                    yandex_mail_url = generate_yandex_mail_link(client, selected_bank)
                     
-                    emails_cc = []
-                    if selected_bank.get('email2') and str(selected_bank.get('email2')) != "nan":
-                        emails_cc.append(str(selected_bank.get('email2')))
-                    if selected_bank.get('email3') and str(selected_bank.get('email3')) != "nan":
-                        emails_cc.append(str(selected_bank.get('email3')))
-                    
-                    # If no manager email, use first CC as TO
-                    if not emails_to and emails_cc:
-                        emails_to.append(emails_cc.pop(0))
-                        
-                    # SUBJECT: Surname Name / ObjType Program City / CreditSum
-                    c_surname = client.get('surname', '') or client.get('fio', '').split()[0]
-                    c_name = client.get('name', '')
-                    if not c_name and len(client.get('fio', '').split()) > 1:
-                        c_name = client.get('fio', '').split()[1]
-                    
-                    subj_parts = [
-                        f"{c_surname} {c_name}",
-                        f"{client.get('obj_type', '')} {client.get('loan_type', '')} {client.get('obj_city', '')}",
-                        f"{safe_int(client.get('credit_sum', 0)):,} руб."
-                    ]
-                    subj = " / ".join(filter(None, subj_parts))
-                    subj = urllib.parse.quote(subj)
-                    
-                    # BODY Construction
-                    lines = []
-                    lines.append("Добрый день!")
-                    lines.append(f"Прошу рассмотреть заявку по клиенту: {client.get('fio')}")
-                    lines.append("")
-                    lines.append("--- ПАРАМЕТРЫ СДЕЛКИ ---")
-                    lines.append(f"Программа: {client.get('loan_type')}")
-                    lines.append(f"Сумма кредита: {safe_int(client.get('credit_sum', 0)):,} руб.")
-                    
-                    lines.append("")
-                    lines.append("--- ПОРТРЕТ КЛИЕНТА ---")
-                    lines.append(f"Возраст: {safe_int(client.get('age', 0))} лет")
-                    lines.append(f"Доход: {client.get('job_type')}")
-                    
-                    if client.get('has_coborrower') == 'Да':
-                        lines.append("Созаемщик: ЕСТЬ")
-                    
-                    if client.get('assets') and str(client.get('assets')) != 'nan' and str(client.get('assets')) != 'None':
-                         lines.append(f"Доп. активы: {client.get('assets')}")
-
-                    lines.append("")
-                    lines.append("--- ОБЪЕКТ ЗАЛОГА ---")
-                    lines.append(f"Тип: {client.get('obj_type')}")
-                    
-                    addr_parts = [
-                        clean_int_str(client.get('obj_index', '')), 
-                        str(client.get('obj_region', '')),
-                        str(client.get('obj_city', '')), 
-                        str(client.get('obj_street', '')), 
-                        f"д. {clean_int_str(client.get('obj_house', ''))}" if client.get('obj_house') and str(client.get('obj_house')) != 'nan' else "",
-                        f"корп. {clean_int_str(client.get('obj_korpus', ''))}" if client.get('obj_korpus') and str(client.get('obj_korpus')) != 'nan' else "",
-                        f"стр. {clean_int_str(client.get('obj_structure', ''))}" if client.get('obj_structure') and str(client.get('obj_structure')) != 'nan' else "",
-                        f"кв. {clean_int_str(client.get('obj_flat', ''))}" if client.get('obj_flat') and str(client.get('obj_flat')) != 'nan' else ""
-                    ]
-                    full_addr = ", ".join([p for p in addr_parts if p and p != "nan" and p != "None" and p != ""])
-                    lines.append(f"Адрес: {full_addr}")
-                    
-                    lines.append(f"Стоимость: {safe_int(client.get('obj_price', 0)):,} руб.")
-                    
-                    if client.get('is_pledged') == 'Да':
-                        lines.append(f"Обременение: ЕСТЬ ({client.get('pledge_bank')}, остаток {safe_int(client.get('pledge_amount', 0)):,} руб.)")
-                    else:
-                        lines.append("Обременение: НЕТ")
-                        
-                    lines.append(f"Правоустановка: {client.get('obj_doc_type')} от {pd.to_datetime(client.get('obj_date')).strftime('%d.%m.%Y') if pd.notna(client.get('obj_date')) else ''}")
-                    
-                    if client.get('obj_renovation') == 'Да':
-                         lines.append("Реновация: ДА")
-
-                    lines.append("")
-                    lines.append("Отчет об оценке (ЦИАН):")
-                    lines.append(str(client.get('cian_report_link', '')).replace('nan', '').replace('None', ''))
-
-                    body_text = "\n".join(lines)
-                    body = urllib.parse.quote(body_text)
-                    
-                    if emails_to:
-                        to_str = ",".join(emails_to)
-                        cc_str = ",".join(emails_cc)
-                        
-                        yandex_params = f"to={to_str}"
-                        if cc_str:
-                            yandex_params += f"&cc={cc_str}"
-                        
-                        yandex_params += f"&subj={subj}&body={body}"
-                        yandex_mail_url = f"https://mail.yandex.ru/compose?{yandex_params}"
-                        
+                    if yandex_mail_url:
                         st.markdown(f"""
                         <a href="{yandex_mail_url}" target="_blank" style="display: inline-block; padding: 0.5em 1em; color: white; background-color: #ffcc00; border-radius: 5px; text-decoration: none;">
                         📧 Написать в банк
                         </a>
                         """, unsafe_allow_html=True)
                     else:
-                        st.caption("Email банка не указан")                  
+                        st.caption("Email банка не указан") 
+                  
                     # Add Interaction
                     st.markdown("#### Добавить запись")
                     with st.form(key="card_add_inter_form"):
@@ -1886,6 +1947,7 @@ elif selected_page == "Карточка Клиента":
                                 
                                 current_db.at[idx, 'bank_interactions'] = json.dumps(curr_inters, ensure_ascii=False)
                                 db.save_all_clients(current_db)
+                                get_cached_clients.clear() # Clear cache
                                 st.success("Запись добавлена!")
                                 st.rerun()
                             else:
@@ -1957,6 +2019,7 @@ elif selected_page == "Карточка Клиента":
                              idx = idx_matches[0]
                              current_db.at[idx, 'bank_interactions'] = json.dumps(new_inters, ensure_ascii=False)
                              db.save_all_clients(current_db)
+                             get_cached_clients.clear() # Clear cache
                          # st.toast("История обновлена!") 
                          # rerunning might lose focus? data_editor usually handles state.
                          # If we rely on streamlit's state preservation, we don't strictly need st.rerun() if data_editor updates locally?
@@ -1989,7 +2052,7 @@ elif selected_page == "Карточка Клиента":
 # --- Page: База Банков ---
 elif selected_page == "База Банков":
     st.title("🏦 Банки")
-    df = db.load_banks()
+    df = get_cached_banks()
     if not df.empty:
         # Pre-process: ensure text columns are strings (not float/NaN) to satisfy st.data_editor
         # Also ensure new columns exist if DB migration didn't happen yet
@@ -2051,6 +2114,7 @@ elif selected_page == "База Банков":
             
         # Use bulk save to handle deletions and avoid duplicates
         db.save_all_banks(edited_df)
+        get_cached_banks.clear() # Clear cache
         with msg_col:
             st.markdown(
                 """
@@ -2102,6 +2166,7 @@ elif selected_page == "База Банков":
             "email2": b_mail2, "email3": b_mail3, 
             "manager_phone": b_tel, "lk_link": b_lk
         })
+        get_cached_banks.clear() # Clear cache
         st.success("Банк добавлен")
         st.rerun()
 
@@ -2110,11 +2175,15 @@ elif selected_page == "Рабочий стол":
     st.title("🖥️ Рабочий стол")
     
     # 1. Load Data
-    all_clients = db.load_clients()
+    all_clients = get_cached_clients()
     
     if all_clients.empty:
         st.info("База клиентов пуста.")
     else:
+        # Load banks for "Write to Bank" feature
+        banks_db_df = get_cached_banks()
+        banks_list = banks_db_df.to_dict('records') if not banks_db_df.empty else []
+        
         # 2. Filters
         # Mimicking "База клиентов" style: multiselects with collapsed labels
         c_filter1, c_filter2 = st.columns(2)
@@ -2144,11 +2213,33 @@ elif selected_page == "Рабочий стол":
             filtered_df = filtered_df[filtered_df['loan_type'].isin(selected_types)]
             
         
-        # 4. Display Clients
         if filtered_df.empty:
             st.warning("Нет клиентов, соответствующих фильтрам.")
         else:
-            for index, client in filtered_df.iterrows():
+            # --- PAGINATION LOGIC ---
+            ITEMS_PER_PAGE = 10
+            if "desktop_page_number" not in st.session_state:
+                st.session_state.desktop_page_number = 1
+                
+            total_items = len(filtered_df)
+            total_pages = (total_items - 1) // ITEMS_PER_PAGE + 1
+            
+            # Ensure page number is valid
+            if st.session_state.desktop_page_number > total_pages:
+                st.session_state.desktop_page_number = total_pages
+            if st.session_state.desktop_page_number < 1:
+                st.session_state.desktop_page_number = 1
+                
+            current_page = st.session_state.desktop_page_number
+            start_idx = (current_page - 1) * ITEMS_PER_PAGE
+            end_idx = min(start_idx + ITEMS_PER_PAGE, total_items)
+            
+            # Slice the dataframe
+            paginated_df = filtered_df.iloc[start_idx:end_idx]
+            
+            st.caption(f"Показаны клиенты {start_idx + 1}-{end_idx} из {total_items} (Страница {current_page} из {total_pages})")
+
+            for index, client in paginated_df.iterrows():
                 with st.container(border=True):
                     # Header: FIO + Status | Credit Sum + Type + Address
                     # Using HTML for tight control over spacing
@@ -2204,7 +2295,18 @@ elif selected_page == "Рабочий стол":
                         interactions = []
                         
                     if interactions:
+                        # Yandex Disk Link (Between FIO and Header)
+                        try:
+                             f_name_link = get_client_folder_name(client)
+                             # Encode the folder name to handle spaces for Markdown link
+                             f_name_encoded = urllib.parse.quote(f_name_link)
+                             yd_link = f"https://disk.yandex.ru/client/disk/{f_name_encoded}"
+                             st.markdown(f"📂 [Папка на Яндекс.Диске]({yd_link})")
+                        except:
+                             pass
+                             
                         st.markdown("**🏦 Работа с банками:**")
+                        
                         for inter in interactions:
                             # inter: {bank_name, stage, comment, date}
                             bank = inter.get('bank_name', 'Неизвестный банк')
@@ -2221,23 +2323,66 @@ elif selected_page == "Рабочий стол":
                         st.caption("Нет взаимодействий с банками.")
                         
                     # --- Action Buttons ---
-                    # Adjust column widths to avoid wrapping "Редактировать клиента" text
-                    c_btn1, c_btn2, _ = st.columns([1.5, 1.5, 3])
+                    # 5 buttons compact row
+                    c_btn1, c_btn2, c_btn3, c_btn4, c_btn5 = st.columns([1, 1, 1, 1.2, 2])
+                    
                     edit_key = f"edit_banks_{client['id']}"
-                    if edit_key not in st.session_state:
-                         st.session_state[edit_key] = False
+                    write_key = f"write_bank_{client['id']}"
+                    docs_key = f"docs_desk_{client['id']}"
+                    
+                    if edit_key not in st.session_state: st.session_state[edit_key] = False
+                    if write_key not in st.session_state: st.session_state[write_key] = False
+                    if docs_key not in st.session_state: st.session_state[docs_key] = False
 
                     with c_btn1:
-                         if st.button("✏️ Редактировать клиента", key=f"btn_edit_client_{client['id']}"):
+                         if st.button("✏️ Клиент", key=f"btn_edit_client_{client['id']}"):
                             st.session_state.editing_client_id = client['id']
                             st.session_state.page = "Новый клиент" 
                             st.rerun()
                     
                     with c_btn2:
-                        toggle_label = "❌ Закрыть" if st.session_state[edit_key] else "✏️ Редактировать банки"
+                        toggle_label = "❌ Закрыть" if st.session_state[edit_key] else "✏️ Банки"
                         if st.button(toggle_label, key=f"btn_edit_banks_{client['id']}"):
                             st.session_state[edit_key] = not st.session_state[edit_key]
+                            if st.session_state[edit_key]: 
+                                st.session_state[write_key] = False
+                                st.session_state[docs_key] = False
                             st.rerun()
+
+                    with c_btn3:
+                        w_label = "❌ Закрыть" if st.session_state[write_key] else "📧 Письмо"
+                        if st.button(w_label, key=f"btn_write_bank_{client['id']}"):
+                            st.session_state[write_key] = not st.session_state[write_key]
+                            if st.session_state[write_key]: 
+                                st.session_state[edit_key] = False
+                                st.session_state[docs_key] = False
+                            st.rerun()
+                    
+                    with c_btn4:
+                        d_label = "❌ Закрыть" if st.session_state[docs_key] else "📄 Документы"
+                        if st.button(d_label, key=f"btn_docs_{client['id']}"):
+                            st.session_state[docs_key] = not st.session_state[docs_key]
+                            if st.session_state[docs_key]: 
+                                st.session_state[edit_key] = False
+                                st.session_state[write_key] = False
+                            st.rerun()
+
+                    with c_btn5:
+                        desk_up = st.file_uploader("", accept_multiple_files=True, label_visibility="collapsed", key=f"desk_up_{client['id']}")
+                        if desk_up and st.button("Отправить в облако", key=f"desk_up_btn_{client['id']}"):
+                            folder_name = get_client_folder_name(client)
+                            success_count = 0
+                            with st.spinner(f"Загрузка..."):
+                                for f in desk_up:
+                                    f.seek(0)
+                                    if upload_to_yandex(f, folder_name, f.name):
+                                        success_count += 1
+                            if success_count == len(desk_up):
+                                st.toast(f"✅ Все файлы ({success_count}) загружены!", icon="☁️")
+                            else:
+                                st.toast(f"⚠️ Загружено {success_count} из {len(desk_up)}", icon="⚠️")
+
+
 
                     if st.session_state[edit_key]:
                         st.markdown("---")
@@ -2311,8 +2456,66 @@ elif selected_page == "Рабочий стол":
                             if not idx.empty:
                                 curr_db.at[idx[0], 'bank_interactions'] = new_json
                                 db.save_all_clients(curr_db)
-                                st.success("Сохранено!")
+                                get_cached_clients.clear()
+                                st.toast("✅ Сохранено!")
                                 st.session_state[edit_key] = False
                                 st.rerun()
                             else:
                                 st.error("Ошибка обновления: клиент не найден")
+                    
+                    if st.session_state[write_key]:
+                        st.markdown("---")
+                        
+                        wb_c1, wb_c2 = st.columns([1, 2])
+                        bank_names_list = [b['name'] for b in banks_list]
+                        
+                        sel_bank_name = wb_c1.selectbox("Выберите банк", bank_names_list, key=f"desk_sel_bank_{client['id']}", index=None, placeholder="Выберите банк...", label_visibility="collapsed")
+                        
+                        if sel_bank_name:
+                            sel_bank = next((b for b in banks_list if b['name'] == sel_bank_name), None)
+                            if sel_bank:
+                                # Generate Link
+                                link = generate_yandex_mail_link(client, sel_bank)
+                                
+                                with wb_c2:
+                                    if link:
+                                        st.markdown(f"""
+                                        <a href="{link}" target="_blank" style="display: inline-block; padding: 0.5em 1em; color: white; background-color: #ffcc00; border-radius: 5px; text-decoration: none;">
+                                        📧 Написать в банк
+                                        </a>
+                                        """, unsafe_allow_html=True)
+                                    else:
+                                        st.warning("Нет email у банка или менеджера.")
+                    
+                    if st.session_state[docs_key]:
+                        st.markdown("---")
+                        st.markdown("**📄 Генерация документов**")
+                        
+                        # Bank selector (local for docs)
+                        bank_names_list = [b['name'] for b in banks_list]
+                        
+                        # Reuse or new selector? Better specific selector
+                        d_sel_bank_name = st.selectbox("Выберите банк для шаблонов", bank_names_list, key=f"docs_sel_bank_{client['id']}", index=None, placeholder="Выберите банк...", label_visibility="collapsed")
+                        
+                        if d_sel_bank_name:
+                            d_sel_bank = next((b for b in banks_list if b['name'] == d_sel_bank_name), None)
+                            if d_sel_bank:
+                                render_docs_generator(client, d_sel_bank, f"desk_docs_{client['id']}", banks_list)
+
+            # --- Pagination Controls ---
+            st.markdown("---")
+            p_col1, p_col2, p_col3 = st.columns([1, 2, 1])
+            with p_col1:
+                if current_page > 1:
+                    if st.button("⬅️ Назад", key="page_prev"):
+                        st.session_state.desktop_page_number -= 1
+                        st.rerun()
+            
+            with p_col2:
+                st.markdown(f"<div style='text-align: center; padding-top: 10px;'>Страница {current_page} из {total_pages}</div>", unsafe_allow_html=True)
+
+            with p_col3:
+                if current_page < total_pages:
+                    if st.button("Вперед ➡️", key="page_next"):
+                        st.session_state.desktop_page_number += 1
+                        st.rerun()
