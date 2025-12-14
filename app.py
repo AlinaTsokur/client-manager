@@ -17,6 +17,7 @@ import pypdf
 import io
 import urllib.parse
 import re
+from num2words import num2words
 
 # --- Performance Optimization: Caching ---
 @st.cache_data(show_spinner=False)
@@ -168,7 +169,53 @@ def formatted_number_input(label, key, allow_float=False, value=None):
         clean = ''.join(c for c in val if c.isdigit())
         return int(clean) if clean else 0
 
+
 # --- LibreOffice Conversion Function ---
+import openpyxl
+
+def fill_excel_template(template_path, context):
+    """Fills an Excel template with context data."""
+    try:
+        wb = openpyxl.load_workbook(template_path)
+        
+        # Iterate over all sheets
+        for sheet in wb.worksheets:
+            for row in sheet.iter_rows():
+                for cell in row:
+                    if cell.value and isinstance(cell.value, str) and '{{' in cell.value:
+                        val = cell.value
+                        # Try both spaces and no-spaces
+                        for k, v in context.items():
+                             # Robust check to avoid partial replacements if possible, but keep simple for now
+                             # {{ key }}
+                             if f'{{{{ {k} }}}}' in val:
+                                 val = val.replace(f'{{{{ {k} }}}}', str(v))
+                             # {{key}}
+                             if f'{{{{{k}}}}}' in val:
+                                 val = val.replace(f'{{{{{k}}}}}', str(v))
+                        
+                        cell.value = val
+                        
+                        # Try to restore numbers
+                        try:
+                           # If the cell is ONLY a number now, convert it
+                           clean = str(val).replace(' ', '').replace(',', '.')
+                           if clean.replace('.', '', 1).isdigit():
+                               if '.' in clean:
+                                   cell.value = float(clean)
+                               else:
+                                   cell.value = int(clean)
+                        except:
+                            pass
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return buf.getvalue()
+    except Exception as e:
+        print(f"Excel fill error: {e}")
+        return None
+
 def fill_pdf_form(template_path, data):
     """Fills a PDF form using pypdf."""
     try:
@@ -334,6 +381,148 @@ def calculate_age(dob):
         return None
 
 
+def calculate_ndfl_year_to_date(year, total_income):
+    """
+    Calculates cumulative NDFL for a given year and total income year-to-date.
+    """
+    if year < 2025:
+        # Pre-2025 Rules:
+        # 13% up to 5M, 15% above 5M
+        limit_15 = 5_000_000
+        if total_income <= limit_15:
+            return int(total_income * 0.13)
+        else:
+            tax_13 = limit_15 * 0.13
+            tax_15 = (total_income - limit_15) * 0.15
+            return int(tax_13 + tax_15)
+    else:
+        # 2025 Rules (Progressive):
+        # 13% <= 2.4M
+        # 15% 2.4M - 5M
+        # 18% 5M - 20M
+        # 20% 20M - 50M
+        # 22% > 50M
+        
+        brackets = [
+            (2_400_000, 0.13),
+            (5_000_000 - 2_400_000, 0.15),  # 2.6M span
+            (20_000_000 - 5_000_000, 0.18), # 15M span
+            (50_000_000 - 20_000_000, 0.20),# 30M span
+            (float('inf'), 0.22)
+        ]
+        
+        remaining_income = total_income
+        total_tax = 0.0
+        
+        for span, rate in brackets:
+            if remaining_income <= 0:
+                break
+            
+            taxable_in_bracket = min(remaining_income, span)
+            total_tax += taxable_in_bracket * rate
+            remaining_income -= taxable_in_bracket
+            
+        return int(total_tax)
+
+
+def get_salary_context(income_str):
+    """
+    Generates context for the last 12 months salary certificate.
+    Returns keys like m_1 (oldest) ... m_12 (newest, previous month).
+    Also returns month-specific ndfl and net_income.
+    """
+    try:
+        if not income_str:
+            income = 0
+        else:
+            income = int(str(income_str).replace(' ', ''))
+    except:
+        income = 0
+
+    months_ru = [
+        "", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", 
+        "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"
+    ]
+    
+    ctx = {
+        'job_income': f"{income:,}".replace(",", " "),
+    }
+    
+    today = date.today()
+    # Start from previous month
+    current_date_cursor = today - relativedelta(months=1)
+    
+    # We need to calculate tax for each month specifically.
+    # To do this correctly for progressive tax, we need the "month of year" index (1..12).
+    # Since we assume constant salary, cumulative income = income * month_number.
+    
+    total_income_12 = 0
+    total_ndfl_12 = 0
+    total_net_12 = 0
+    
+    # Generate 12 months going backwards
+    # m_12 is the most recent (previous month)
+    # m_1 is the oldest (12 months ago)
+    
+    months_data = [] # Store temporarily to reverse if needed, but we fill by index
+    
+    # Iterate backwards from m_12 to m_1
+    for i in range(12):
+        # i=0 -> m_12 (newest), i=11 -> m_1 (oldest)
+        m_idx = 12 - i 
+        
+        loop_date = current_date_cursor
+        m_name = months_ru[loop_date.month]
+        month_label = f"{m_name} {loop_date.year}"
+        
+        # Calculate Tax for this specific month
+        # 1. Cumulative Income UP TO this month (inclusive)
+        current_month_num = loop_date.month
+        cumulative_income_now = income * current_month_num
+        
+        # 2. Cumulative Income UP TO Previous month
+        cumulative_income_prev = income * (current_month_num - 1)
+        
+        # 3. Calculate Tax Liability YTD
+        tax_ytd_now = calculate_ndfl_year_to_date(loop_date.year, cumulative_income_now)
+        tax_ytd_prev = calculate_ndfl_year_to_date(loop_date.year, cumulative_income_prev)
+        
+        # 4. Monthly Tax = diff
+        monthly_ndfl = tax_ytd_now - tax_ytd_prev
+        monthly_net = income - monthly_ndfl
+        
+        # Add to yearly totals
+        total_income_12 += income
+        total_ndfl_12 += monthly_ndfl
+        total_net_12 += monthly_net
+        
+        # Update Context for this specific month index
+        ctx[f'm_{m_idx}'] = month_label
+        ctx[f'month_{m_idx}'] = m_name
+        ctx[f'year_{m_idx}'] = str(loop_date.year)
+        ctx[f'ndfl_{m_idx}'] = f"{monthly_ndfl:,}".replace(",", " ")
+        ctx[f'net_{m_idx}'] = f"{monthly_net:,}".replace(",", " ")
+        ctx[f'income_{m_idx}'] = f"{income:,}".replace(",", " ") # If they want explicit income per row
+        
+        # Move back
+        current_date_cursor = current_date_cursor - relativedelta(months=1)
+
+    # Global totals for the certificate (Sum of the 12 months displayed)
+    # Use _total suffix to avoid collision with month 12
+    ctx['job_income_total'] = f"{total_income_12:,}".replace(",", " ")
+    ctx['ndfl_total'] = f"{total_ndfl_12:,}".replace(",", " ")
+    ctx['net_income_total'] = f"{total_net_12:,}".replace(",", " ")
+    
+    # Also provide _13 for convenience if user expects it for the "13th row" (Total)
+    ctx['job_income_13'] = ctx['job_income_total']
+    ctx['ndfl_13'] = ctx['ndfl_total']
+    ctx['net_income_13'] = ctx['net_income_total']
+    
+    # Fallback/Default single values (using the latest month, i.e., m_12 logic)
+    ctx['ndfl'] = ctx['ndfl_12']
+    ctx['net_income'] = ctx['net_12']
+
+    return ctx
 db.init_db()
 
 # --- Yandex Disk Integration ---
@@ -441,9 +630,9 @@ def render_docs_generator(client, selected_bank, key_suffix, banks_list=None):
     # Check dirs
     templates_found = []
     if os.path.exists(bank_tpl_dir):
-        templates_found.extend([(f, os.path.join(bank_tpl_dir, f)) for f in os.listdir(bank_tpl_dir) if (f.endswith('.docx') or f.endswith('.pdf')) and not f.startswith('~$')])
+        templates_found.extend([(f, os.path.join(bank_tpl_dir, f)) for f in os.listdir(bank_tpl_dir) if (f.endswith('.docx') or f.endswith('.pdf') or f.endswith('.xlsx')) and not f.startswith('~$')])
     if os.path.exists(common_tpl_dir):
-        templates_found.extend([(f, os.path.join(common_tpl_dir, f)) for f in os.listdir(common_tpl_dir) if (f.endswith('.docx') or f.endswith('.pdf')) and not f.startswith('~$')])
+        templates_found.extend([(f, os.path.join(common_tpl_dir, f)) for f in os.listdir(common_tpl_dir) if (f.endswith('.docx') or f.endswith('.pdf') or f.endswith('.xlsx')) and not f.startswith('~$')])
         
     if not templates_found:
         st.caption(f"Шаблоны не найдены (папка templates/{bank_folder_name}).")
@@ -474,8 +663,20 @@ def render_docs_generator(client, selected_bank, key_suffix, banks_list=None):
                     term_years = safe_int(client.get('loan_term', 0))
                     term_months = term_years * 12
 
+
+                    # Ensure FIO parts are available
+                    c_surname = client.get('surname', '')
+                    c_name = client.get('name', '')
+                    c_patronymic = client.get('patronymic', '')
+                    
+                    if not c_surname and client.get('fio'):
+                         c_surname, c_name, c_patronymic = parse_fio(client.get('fio'))
+
                     context = {
                         'fio': client.get('fio', ''),
+                        'surname': str(c_surname).replace('nan', '') if c_surname else '',
+                        'name': str(c_name).replace('nan', '') if c_name else '',
+                        'patronymic': str(c_patronymic).replace('nan', '') if c_patronymic else '',
                         'phone': clean_int_str(client.get('phone', '')),
                         'email': str(client.get('email', '')).replace('nan', ''),
                         
@@ -487,7 +688,7 @@ def render_docs_generator(client, selected_bank, key_suffix, banks_list=None):
                         'dob': pd.to_datetime(client.get('dob')).strftime('%d.%m.%Y') if pd.notna(client.get('dob')) else "",
                         'birth_place': str(client.get('birth_place', '')).replace('nan', ''),
                         'kpp': str(client.get('kpp', '')).replace('nan', ''),
-                        'inn': str(client.get('inn', '')).replace('nan', ''),
+                        'inn': clean_int_str(client.get('inn', '')),
                         'snils': clean_int_str(client.get('snils', '')),
                         
                         # Адрес регистрации (по частям)
@@ -533,11 +734,13 @@ def render_docs_generator(client, selected_bank, key_suffix, banks_list=None):
                         'job_inn': clean_int_str(client.get('job_inn', '')),
                         'job_ceo': str(client.get('job_ceo', '')).replace('nan', ''),
                         'job_address': str(client.get('job_address', '')).replace('nan', ''),
+                        'job_sphere': str(client.get('job_sphere', '')).replace('nan', ''),
                         'total_exp': clean_int_str(client.get('total_exp', '')),
                         
                         # Личные данные (добавлено)
                         'family_status': client.get('family_status', ''),
                         'gender': client.get('gender', ''),
+                        'marriage_contract': str(client.get('marriage_contract', '')).replace('nan', '').replace('None', ''),
                         'children_count': clean_int_str(client.get('children_count', '')),
                         'children_dates': str(client.get('children_dates', '')).replace('nan', '') if safe_int(client.get('children_count', 0)) > 0 else "",
                         
@@ -549,7 +752,29 @@ def render_docs_generator(client, selected_bank, key_suffix, banks_list=None):
                         'obj_floor': clean_int_str(client.get('obj_floor', '')),
                         'obj_total_floors': clean_int_str(client.get('obj_total_floors', '')),
                         'obj_walls': client.get('obj_walls', ''),
+                        'obj_type': str(client.get('obj_type', '')).replace('nan', '').replace('None', ''),
+                        'obj_doc_type': str(client.get('obj_doc_type', '')).replace('nan', '').replace('None', ''),
+                        'obj_city': str(client.get('obj_city', '')).replace('nan', '').replace('None', ''),
+
+                        # Залог и Активы (добавлено)
+                        'is_pledged': str(client.get('is_pledged', '')).replace('nan', '').replace('None', ''),
+                        'pledge_bank': str(client.get('pledge_bank', '')).replace('nan', '').replace('None', ''),
+                        'pledge_amount': clean_int_str(client.get('pledge_amount', '')),
+                        'assets': str(client.get('assets', '')).replace('nan', '').replace('None', ''),
                     }
+                    
+                    # --- Salary Context (12 months) ---
+                    salary_ctx = get_salary_context(clean_int_str(client.get('job_income', '')))
+                    context.update(salary_ctx)
+
+                    # --- Number to Words (Propis) ---
+                    try:
+                        income_int = int(clean_int_str(client.get('job_income', 0)))
+                        income_words = num2words(income_int, lang='ru')
+                        context['job_income_propis'] = income_words
+                    except:
+                        context['job_income_propis'] = ""
+
 
                     if tpl_name.endswith('.docx'):
                         # --- DOCX Logic ---
@@ -564,6 +789,16 @@ def render_docs_generator(client, selected_bank, key_suffix, banks_list=None):
                         # Save to session (so buttons persist after rerun if needed, or just immediate use)
                         st.session_state[f"docx_buf_{key_suffix}_{i}"] = buf
                         st.session_state[f"docx_name_{key_suffix}_{i}"] = download_name
+
+                    elif tpl_name.endswith('.xlsx'):
+                         # --- Excel Logic ---
+                         excel_bytes = fill_excel_template(tpl_path, context)
+                         if excel_bytes:
+                             download_name = f"{bank_folder_name} {tpl_name.replace('.xlsx', '')} {date.today().strftime('%d_%m_%y')}.xlsx"
+                             st.session_state[f"xlsx_bytes_{key_suffix}_{i}"] = excel_bytes
+                             st.session_state[f"xlsx_name_{key_suffix}_{i}"] = download_name
+                         else:
+                             st.error("Ошибка генерации Excel.")
 
                     elif tpl_name.endswith('.pdf'):
                         # --- PDF Form Logic ---
@@ -625,6 +860,16 @@ def render_docs_generator(client, selected_bank, key_suffix, banks_list=None):
                             mime="application/pdf",
                             key=f"dl_conv_pdf_{key_suffix}_{i}"
                         )
+            
+            # Excel Download
+            if f"xlsx_bytes_{key_suffix}_{i}" in st.session_state:
+                 st.download_button(
+                    label=f"📥 Скачать XLSX",
+                    data=st.session_state[f"xlsx_bytes_{key_suffix}_{i}"],
+                    file_name=st.session_state[f"xlsx_name_{key_suffix}_{i}"],
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"dl_xlsx_{key_suffix}_{i}"
+                )
             
             # Pure PDF Form
             if f"pdf_pure_bytes_{key_suffix}_{i}" in st.session_state:
