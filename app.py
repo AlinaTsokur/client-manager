@@ -222,9 +222,8 @@ def fill_pdf_form(template_path, data):
         reader = pypdf.PdfReader(template_path)
         writer = pypdf.PdfWriter()
         
-        # Copy pages
-        for page in reader.pages:
-            writer.add_page(page)
+        # Clone valid content (preserves AcroForm)
+        writer.clone_document_from_reader(reader)
             
         # Prepare data: ensure all values are strings
         clean_data = {k: str(v) for k, v in data.items() if v is not None}
@@ -236,9 +235,9 @@ def fill_pdf_form(template_path, data):
         buf = io.BytesIO()
         writer.write(buf)
         buf.seek(0)
-        return buf.getvalue()
+        return buf.getvalue(), None
     except Exception as e:
-        return None
+        return None, str(e)
 
 def clean_int_str(val):
     """Cleans string values that might be read as floats from Excel (e.g. '123.0' -> '123')."""
@@ -518,6 +517,10 @@ def get_salary_context(income_str):
     ctx['ndfl_13'] = ctx['ndfl_total']
     ctx['net_income_13'] = ctx['net_income_total']
     
+    # Average Monthly Deductions (NDFL / 12)
+    avg_ndfl = int(total_ndfl_12 / 12) if total_ndfl_12 else 0
+    ctx['average_ndfl'] = f"{avg_ndfl:,}".replace(",", " ")
+    
     # Fallback/Default single values (using the latest month, i.e., m_12 logic)
     ctx['ndfl'] = ctx['ndfl_12']
     ctx['net_income'] = ctx['net_12']
@@ -724,7 +727,12 @@ def render_docs_generator(client, selected_bank, key_suffix, banks_list=None):
                         'loan_term': term_years,       # В годах (например: 15)
                         'loan_term_months': term_months, # В месяцах (например: 180)
                         
+                        'loan_term_months': term_months, # В месяцах (например: 180)
+                        
                         'today': date.today().strftime("%d.%m.%Y"),
+                        'today_d': date.today().strftime("%d"),
+                        'today_m': date.today().strftime("%m"),
+                        'today_y': date.today().strftime("%Y"),
                         
                         # Работа
                         'job_company': str(client.get('job_company', '')).replace('nan', ''),
@@ -746,6 +754,9 @@ def render_docs_generator(client, selected_bank, key_suffix, banks_list=None):
                         
                         # Работа (добавлено)
                         'job_start_date': pd.to_datetime(client.get('job_start_date')).strftime('%d.%m.%Y') if pd.notna(client.get('job_start_date')) and str(client.get('job_start_date')) != 'None' else "",
+                        'job_start_date_d': pd.to_datetime(client.get('job_start_date')).strftime('%d') if pd.notna(client.get('job_start_date')) and str(client.get('job_start_date')) != 'None' else "",
+                        'job_start_date_m': pd.to_datetime(client.get('job_start_date')).strftime('%m') if pd.notna(client.get('job_start_date')) and str(client.get('job_start_date')) != 'None' else "",
+                        'job_start_date_y': pd.to_datetime(client.get('job_start_date')).strftime('%Y') if pd.notna(client.get('job_start_date')) and str(client.get('job_start_date')) != 'None' else "",
                         
                         # Объект (добавлено)
                         'obj_area': clean_int_str(client.get('obj_area', '')),
@@ -774,6 +785,19 @@ def render_docs_generator(client, selected_bank, key_suffix, banks_list=None):
                         context['job_income_propis'] = income_words
                     except:
                         context['job_income_propis'] = ""
+                        
+                    # --- NDFL 13% fixed ---
+                    try:
+                        income_int = int(clean_int_str(client.get('job_income', 0)))
+                        ndfl_13_val = int(income_int * 0.13)
+                        context['ndfl_avg_13'] = f"{ndfl_13_val:,}".replace(",", " ")
+                        
+                        # Yearly 13%
+                        ndfl_year_13_val = ndfl_13_val * 12
+                        context['ndfl_total_13_calc'] = f"{ndfl_year_13_val:,}".replace(",", " ")
+                    except:
+                        context['ndfl_avg_13'] = ""
+                        context['ndfl_total_13_calc'] = ""
 
 
                     if tpl_name.endswith('.docx'):
@@ -803,7 +827,7 @@ def render_docs_generator(client, selected_bank, key_suffix, banks_list=None):
                     elif tpl_name.endswith('.pdf'):
                         # --- PDF Form Logic ---
                         with st.spinner("Заполнение PDF формы..."):
-                            filled_pdf_bytes = fill_pdf_form(tpl_path, context)
+                            filled_pdf_bytes, error_msg = fill_pdf_form(tpl_path, context)
                             
                             if filled_pdf_bytes:
                                 download_name = f"{bank_folder_name} {tpl_name.replace('.pdf', '')} {date.today().strftime('%d_%m_%y')}.pdf"
@@ -811,7 +835,7 @@ def render_docs_generator(client, selected_bank, key_suffix, banks_list=None):
                                 st.session_state[f"pdf_pure_name_{key_suffix}_{i}"] = download_name
                                 st.success("✅ PDF форма заполнена!")
                             else:
-                                st.error("Ошибка при заполнении PDF.")
+                                st.error(f"Ошибка при заполнении PDF: {error_msg}")
 
                 except Exception as e:
                     st.error(f"Ошибка генерации: {e}")

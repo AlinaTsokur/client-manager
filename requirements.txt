@@ -6,3 +6,6 @@ docxtpl
 reportlab
 oauth2client
 openpyxl
+pypdf
+num2words
+streamlit-searchbox
