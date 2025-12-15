@@ -2569,7 +2569,7 @@ elif selected_page == "Рабочий стол":
                              f_name_link = get_client_folder_name(client)
                              # Encode the folder name to handle spaces for Markdown link
                              f_name_encoded = urllib.parse.quote(f_name_link)
-                             yd_link = f"https://disk.yandex.ru/client/disk/{f_name_encoded}"
+                             yd_link = f"https://disk.yandex.ru/client/disk/Clients/{f_name_encoded}"
                              st.markdown(f"📂 [Папка на Яндекс.Диске]({yd_link})")
                         except:
                              pass
