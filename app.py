@@ -624,6 +624,12 @@ def render_docs_generator(client, selected_bank, key_suffix, banks_list=None):
         return
 
     selected_bank_name = selected_bank.get('name')
+    
+    # --- Display Bank Login Link ---
+    lk_link = selected_bank.get('lk_link')
+    if lk_link and str(lk_link) not in ['nan', 'None', '', 'None']:
+        st.markdown(f"🔗 [Личный кабинет банка]({lk_link})", unsafe_allow_html=True)
+
     # Templates
     # Use transliterated folder name
     bank_folder_name = transliterate(selected_bank_name)
