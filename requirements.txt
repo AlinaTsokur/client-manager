@@ -1,11 +1,11 @@
-streamlit
-gspread
+streamlit>=1.28
 pandas
 requests
 docxtpl
-reportlab
-oauth2client
 openpyxl
 pypdf
 num2words
 streamlit-searchbox
+python-dateutil
+supabase
+python-dotenv
