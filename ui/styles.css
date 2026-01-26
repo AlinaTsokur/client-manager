@@ -1,0 +1,110 @@
+/* === FILE UPLOADER STYLES === */
+[data-testid='stFileUploader'] section > div:first-child {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 10px;
+}
+[data-testid='stFileUploader'] section > div:first-child > span,
+[data-testid='stFileUploader'] section > div:first-child > small,
+[data-testid='stFileUploader'] section > div:first-child > div {
+    display: none !important;
+}
+[data-testid='stFileUploader'] section {
+    padding: 0px !important;
+    min-height: 40px !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+}
+[data-testid='stFileUploader'] section svg {
+    display: none !important;
+}
+[data-testid='stFileUploader'] section button {
+    border: 1px solid #4CAF50;
+    color: white;
+    background-color: #4CAF50;
+    border-radius: 5px;
+    visibility: hidden;
+    position: relative;
+    width: 140px;
+    height: 35px;
+    line-height: 0;
+    margin: 0 !important;
+}
+[data-testid='stFileUploader'] section button::after {
+    content: "Выбрать файлы";
+    visibility: visible;
+    display: flex;
+    position: absolute;
+    background-color: #4CAF50;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 5px;
+    font-size: 14px;
+}
+
+/* === LAYOUT STYLES === */
+.block-container {
+    padding-top: 3rem !important;
+    padding-left: 10rem !important;
+    padding-right: 10rem !important;
+    max-width: 100% !important;
+}
+/* Compact line spacing for bank interactions only */
+.compact-banks p {
+    margin-bottom: 0.2rem !important;
+    line-height: 1.2 !important;
+}
+
+/* === MOBILE RESPONSIVE === */
+@media (max-width: 768px) {
+    .block-container {
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+        padding-top: 1rem !important;
+    }
+    
+    /* Fix radio buttons on mobile - compact row wrap */
+    [data-testid="stRadio"] > div {
+        flex-direction: row !important;
+        flex-wrap: wrap !important;
+        justify-content: flex-start !important;
+        gap: 8px !important;
+    }
+    
+    [data-testid="stRadio"] label {
+        white-space: nowrap !important;
+        overflow: visible !important;
+        font-size: 14px !important;
+        padding-right: 10px !important;
+    }
+    
+    /* Prevent word breaking */
+    h1, h2, h3, p, label, span {
+        word-break: keep-all !important;
+        overflow-wrap: normal !important;
+    }
+    
+    /* Bigger title on mobile */
+    h1 {
+        font-size: 1.5rem !important;
+        white-space: nowrap !important;
+    }
+    
+    /* Stack columns vertically on mobile */
+    [data-testid="column"] {
+        width: 100% !important;
+        flex: 1 1 100% !important;
+    }
+    
+    /* Make buttons full width on mobile */
+    .stButton > button {
+        width: 100% !important;
+    }
+}
