@@ -65,41 +65,49 @@ with st.sidebar:
         import os
         os._exit(0)
 
-# --- Navigation ---
-if "page" not in st.session_state:
-    query_params = st.query_params
-    query_page = query_params.get("page")
-    pages = ["➕ Новый", "📋 Клиенты", "🏦 Банки", "🖥 Рабочий стол", "⚙️ Сервисы"]
-    st.session_state.page = query_page if query_page in pages else "🖥 Рабочий стол"
-
+# --- Navigation Logic ---
 pages = ["➕ Новый", "📋 Клиенты", "🏦 Банки", "🖥 Рабочий стол", "⚙️ Сервисы"]
-if st.session_state.page not in pages:
-    st.session_state.page = "🖥 Рабочий стол"
 
-current_index = pages.index(st.session_state.page)
+# 1. APPLY PENDING NAV BEFORE WIDGETS (Two-step navigation)
+# --- Read URL params ---
+qp_page = st.query_params.get("page")
+qp_edit = st.query_params.get("edit")
 
-if st.query_params.get("page") != st.session_state.page:
-    st.query_params["page"] = st.session_state.page
+# Apply edit only when target page is "➕ Новый" (or not set)
+if qp_edit and (qp_page is None or qp_page == "➕ Новый"):
+    st.session_state["editing_client_id"] = qp_edit
+    st.session_state["nav_to"] = "➕ Новый"
 
-# Ensure radio button stays in sync with page state
+# If user switched away from "➕ Новый" — drop edit mode + URL param
+if qp_page and qp_page != "➕ Новый":
+    st.session_state.pop("editing_client_id", None)
+    st.query_params.pop("edit", None)
+
+# 1. APPLY PENDING NAV BEFORE WIDGETS (Two-step navigation)
+if "nav_to" in st.session_state:
+    target = st.session_state.pop("nav_to")
+    if target in pages:
+        st.session_state["main_nav"] = target
+        st.query_params["page"] = target
+
+# 2. Initialize main_nav from URL or default if not set
 if "main_nav" not in st.session_state:
-    st.session_state.main_nav = st.session_state.page
-elif st.session_state.main_nav != st.session_state.page:
-    st.session_state.main_nav = st.session_state.page
+    qp = st.query_params.get("page")
+    st.session_state["main_nav"] = qp if qp in pages else "🖥 Рабочий стол"
 
+# 2. Render Radio (Single Source of Truth)
 selected_page = st.radio(
     "Меню",
     pages,
     horizontal=True,
     label_visibility="collapsed",
-    index=current_index,
     key="main_nav"
 )
 
-if selected_page != st.session_state.page:
-    st.session_state.page = selected_page
+# 3. Sync page state and URL with radio selection
+st.session_state["page"] = selected_page
+if st.query_params.get("page") != selected_page:
     st.query_params["page"] = selected_page
-    st.rerun()
 
 
 # ===================================================
@@ -116,11 +124,13 @@ if selected_page == "➕ Новый":
             edit_client_data = all_clients[all_clients["id"] == edit_client_id].iloc[0].to_dict()
         else:
             st.error("Клиент не найден!")
-            st.session_state.editing_client_id = None
+            st.session_state.pop("editing_client_id", None)
+            st.query_params.pop("edit", None)
             st.rerun()
         
         if st.button("❌ Отмена редактирования"):
             st.session_state.editing_client_id = None
+            st.query_params.pop("edit", None)
             st.rerun()
         
         form_data = render_client_form(client_data=edit_client_data, key_prefix="edit_")
@@ -137,6 +147,7 @@ if selected_page == "➕ Новый":
                     clear_cache()
                     st.success(f"Клиент {data['fio']} обновлен!")
                     st.session_state.editing_client_id = None
+                    st.query_params.pop("edit", None)
                     time.sleep(1)
                     st.rerun()
                 else:
@@ -329,10 +340,9 @@ elif selected_page == "🖥 Рабочий стол":
                         
                         with c_btn1:
                             if st.button("✏️ Клиент", key=f"btn_edit_{client_id}"):
-                                st.session_state.editing_client_id = client_id
-                                st.session_state.page = "➕ Новый"
-                                # Force radio button update
-                                st.session_state.main_nav = "➕ Новый"
+                                st.query_params["page"] = "➕ Новый"
+                                st.query_params["edit"] = client_id
+                                st.session_state["nav_to"] = "➕ Новый"
                                 st.rerun()
                         
                         with c_btn2:
