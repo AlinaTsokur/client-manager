@@ -24,6 +24,7 @@ from utils.formatters import clean_value, clean_int_str, safe_int, format_phone_
 from utils.helpers import parse_fio, calculate_age, transliterate, format_client_info
 from ui.components import formatted_number_input, formatted_phone_input, generate_yandex_mail_link
 from ui.client_form import render_client_form
+from ui.pages.banks import render_banks_page
 
 # --- Initialize Services ---
 client_repo = ClientRepository()
@@ -311,56 +312,7 @@ elif selected_page == "Карточка Клиента":
 # PAGE: БАЗА БАНКОВ
 # ===================================================
 elif selected_page == "База Банков":
-    st.title("🏦 Банки")
-    df = get_cached_banks()
-    
-    if not df.empty:
-        # Display without id column
-        display_cols = ["name", "manager_fio", "manager_phone", "manager_email", "lk_link", "address"]
-        st.dataframe(
-            df.reindex(columns=display_cols),
-            use_container_width=True,
-            column_config={
-                "name": "Название",
-                "manager_fio": "Менеджер",
-                "manager_phone": "Телефон",
-                "manager_email": "Email",
-                "lk_link": st.column_config.LinkColumn("ЛК", display_text="Открыть"),
-                "address": "Адрес"
-            }
-        )
-    
-    st.subheader("Добавить банк")
-    r1_c1, r1_c2, r1_c3, r1_c4 = st.columns(4)
-    b_name = r1_c1.text_input("Название")
-    b_address = r1_c2.text_input("Адрес")
-    b_manager = r1_c3.text_input("Менеджер")
-    with r1_c4:
-        b_phone = formatted_phone_input("Телефон", "bank_new_phone")
-    
-    r2_c1, r2_c2, r2_c3, r2_c4 = st.columns(4)
-    b_email = r2_c1.text_input("Email")
-    b_email2 = r2_c2.text_input("Email 2")
-    b_email3 = r2_c3.text_input("Email 3")
-    b_lk = r2_c4.text_input("Ссылка на ЛК", placeholder="https://...")
-    
-    if st.button("Добавить", type="primary"):
-        import uuid
-        bank_data = {
-            "id": str(uuid.uuid4()),
-            "name": b_name,
-            "address": b_address,
-            "manager_fio": b_manager,
-            "manager_phone": b_phone,
-            "manager_email": b_email,
-            "email2": b_email2,
-            "email3": b_email3,
-            "lk_link": b_lk
-        }
-        if bank_repo.save(bank_data):
-            clear_cache()
-            st.success("Банк добавлен!")
-            st.rerun()
+    render_banks_page(bank_repo, get_cached_banks, clear_cache)
 
 
 # ===================================================
@@ -502,7 +454,7 @@ elif selected_page == "Рабочий стол":
                                 st.rerun()
                         
                         with c_btn5:
-                            desk_up = st.file_uploader("", accept_multiple_files=True, label_visibility="collapsed", key=f"desk_up_{client_id}")
+                            desk_up = st.file_uploader("Загрузка файлов", accept_multiple_files=True, label_visibility="collapsed", key=f"desk_up_{client_id}")
                             if desk_up:
                                 folder_name = yandex_service.get_client_folder_name(client.to_dict())
                                 success = 0

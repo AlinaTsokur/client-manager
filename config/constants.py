@@ -75,9 +75,24 @@ CLIENT_COLS = [
     "block_comment", "bank_interactions"
 ]
 
+# --- Bank Program Options ---
+BANK_PROGRAM_OPTIONS = ["Ипотека", "Залог", "Лизинг"]
+
+BANK_OBJECT_OPTIONS = [
+    "Квартира", "Дом", "Таунхаус", "Машиноместо", 
+    "Комната", "Земля", "Апартаменты", "Коммерция"
+]
+
 BANK_COLS = [
     "id", "name", "manager_fio", "manager_phone", "manager_email", 
-    "email2", "email3", "lk_link", "address"
+    "email2", "email3", "lk_link", "address",
+    # Program-specific fields
+    "ipoteka_objects", "ipoteka_pv",      # Ипотека: objects + PV per object
+    "zalog_objects", "zalog_kz",           # Залог: objects + KZ %
+    "lizing_objects", "lizing_kz",         # Лизинг: objects + KZ %
+    # Common fields
+    "term_min", "term_max", "amount_min", "amount_max",
+    "age_min", "age_max", "allows_encumbrance", "allows_renovation"
 ]
 
 APP_COLS = [
