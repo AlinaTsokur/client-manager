@@ -58,7 +58,7 @@ load_css()
 st.title("СОКОЛ")
 
 # --- Navigation Logic ---
-pages = ["➕ Новый", "📋 Клиенты", "🏦 Банки", "�💻 Рабочий стол", "⚙️ Сервисы"]
+pages = ["➕ Новый", "📋 Клиенты", "🏦 Банки", "💻 Рабочий стол", "⚙️ Сервисы"]
 
 # 1. APPLY PENDING NAV BEFORE WIDGETS (Two-step navigation)
 # --- Read URL params ---
@@ -85,7 +85,7 @@ if "nav_to" in st.session_state:
 # 2. Initialize main_nav from URL or default if not set
 if "main_nav" not in st.session_state:
     qp = st.query_params.get("page")
-    st.session_state["main_nav"] = qp if qp in pages else "�💻 Рабочий стол"
+    st.session_state["main_nav"] = qp if qp in pages else "💻 Рабочий стол"
 
 # 2. Render Radio (Single Source of Truth)
 selected_page = st.radio(
@@ -228,7 +228,7 @@ elif selected_page == "🏦 Банки":
 # ===================================================
 # PAGE: РАБОЧИЙ СТОЛ
 # ===================================================
-elif selected_page == "�💻 Рабочий стол":
+elif selected_page == "💻 Рабочий стол":
     all_clients = get_cached_clients()
     
     if all_clients.empty:
