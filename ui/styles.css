@@ -69,74 +69,65 @@
 }
 
 /* === MOBILE RESPONSIVE === */
+/* === MOBILE NAV (ONLY MAIN MENU) === */
 @media (max-width: 768px) {
+
+    /* ТОЛЬКО меню — якоримся на aria-label пунктов */
+    [data-testid="stRadio"]:has(input[aria-label="➕ Новый"])>div,
+    [data-testid="stRadio"]:has(input[aria-label="📋 Клиенты"])>div,
+    [data-testid="stRadio"]:has(input[aria-label="🏦 Банки"])>div,
+    [data-testid="stRadio"]:has(input[aria-label="🖥 Рабочий стол"])>div,
+    [data-testid="stRadio"]:has(input[aria-label="⚙️ Сервисы"])>div {
+        flex-direction: row !important;
+        flex-wrap: wrap !important;
+        justify-content: center !important;
+        gap: 10px !important;
+        width: 100% !important;
+    }
+
+    /* Убираем кружок радио */
+    [data-testid="stRadio"]:has(input[aria-label="➕ Новый"]) label>div:first-child,
+    [data-testid="stRadio"]:has(input[aria-label="📋 Клиенты"]) label>div:first-child,
+    [data-testid="stRadio"]:has(input[aria-label="🏦 Банки"]) label>div:first-child,
+    [data-testid="stRadio"]:has(input[aria-label="🖥 Рабочий стол"]) label>div:first-child,
+    [data-testid="stRadio"]:has(input[aria-label="⚙️ Сервисы"]) label>div:first-child {
+        display: none !important;
+    }
+
+    /* Просто emoji — без кнопок/рамок */
+    [data-testid="stRadio"]:has(input[aria-label="➕ Новый"]) label,
+    [data-testid="stRadio"]:has(input[aria-label="📋 Клиенты"]) label,
+    [data-testid="stRadio"]:has(input[aria-label="🏦 Банки"]) label,
+    [data-testid="stRadio"]:has(input[aria-label="🖥 Рабочий стол"]) label,
+    [data-testid="stRadio"]:has(input[aria-label="⚙️ Сервисы"]) label {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        padding: 6px 8px !important;
+        border: none !important;
+        background: transparent !important;
+        width: auto !important;
+        height: auto !important;
+        overflow: hidden !important;
+        white-space: nowrap !important;
+    }
+
+    /* Оставляем только emoji */
+    [data-testid="stRadio"]:has(input[aria-label="➕ Новый"]) label p,
+    [data-testid="stRadio"]:has(input[aria-label="📋 Клиенты"]) label p,
+    [data-testid="stRadio"]:has(input[aria-label="🏦 Банки"]) label p,
+    [data-testid="stRadio"]:has(input[aria-label="🖥 Рабочий стол"]) label p,
+    [data-testid="stRadio"]:has(input[aria-label="⚙️ Сервисы"]) label p {
+        margin: 0 !important;
+        font-size: 28px !important;
+        max-width: 2em !important;
+        overflow: hidden !important;
+        white-space: nowrap !important;
+    }
+
     .block-container {
         padding-left: 1rem !important;
         padding-right: 1rem !important;
         padding-top: 1rem !important;
-    }
-
-    /* Fix radio buttons on mobile - compact row wrap */
-    [data-testid="stRadio"]>div {
-        flex-direction: row !important;
-        flex-wrap: wrap !important;
-        justify-content: center !important;
-        gap: 8px !important;
-        width: 100% !important;
-    }
-
-    /* Make each option look like a square icon button */
-    [data-testid="stRadio"] label {
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        font-size: 24px !important;
-        /* Bigger icon */
-        padding: 8px 12px !important;
-        background-color: #262730;
-        border-radius: 8px;
-        border: 1px solid #444;
-        width: 50px !important;
-        /* Fixed width */
-        justify-content: center !important;
-        display: flex !important;
-    }
-
-    /* Hide text by limiting width of inner container */
-    [data-testid="stRadio"] label div[data-testid="stMarkdownContainer"] p {
-        width: 28px !important;
-        /* Show only the emoji */
-        overflow: hidden !important;
-        white-space: nowrap !important;
-        display: block !important;
-        text-overflow: clip !important;
-        margin: 0 !important;
-    }
-
-    /* Prevent word breaking */
-    h1,
-    h2,
-    h3,
-    p,
-    label,
-    span {
-        word-break: keep-all !important;
-        overflow-wrap: normal !important;
-    }
-
-    /* Bigger title on mobile */
-    h1 {
-        font-size: 1.5rem !important;
-        white-space: nowrap !important;
-    }
-
-    /* Stack columns vertically on mobile */
-    [data-testid="column"] {
-        width: 100% !important;
-        flex: 1 1 100% !important;
-    }
-
-    /* Make buttons full width on mobile */
-    .stButton>button {
-        width: 100% !important;
     }
 }

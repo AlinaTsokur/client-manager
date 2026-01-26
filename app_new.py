@@ -86,7 +86,8 @@ selected_page = st.radio(
     pages,
     horizontal=True,
     label_visibility="collapsed",
-    index=current_index
+    index=current_index,
+    key="main_nav"
 )
 
 if selected_page != st.session_state.page:
