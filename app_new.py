@@ -172,12 +172,12 @@ with st.sidebar:
 if "page" not in st.session_state:
     query_params = st.query_params
     query_page = query_params.get("page")
-    pages = ["Новый клиент", "Карточка Клиента", "База Клиентов", "База Банков", "Рабочий стол", "Сервисы"]
-    st.session_state.page = query_page if query_page in pages else "Рабочий стол"
+    pages = ["➕ Новый", "📋 Клиенты", "🏦 Банки", "🖥 Рабочий стол", "⚙️ Сервисы"]
+    st.session_state.page = query_page if query_page in pages else "🖥 Рабочий стол"
 
-pages = ["Новый клиент", "Карточка Клиента", "База Клиентов", "База Банков", "Рабочий стол", "Сервисы"]
+pages = ["➕ Новый", "📋 Клиенты", "🏦 Банки", "🖥 Рабочий стол", "⚙️ Сервисы"]
 if st.session_state.page not in pages:
-    st.session_state.page = "Рабочий стол"
+    st.session_state.page = "🖥 Рабочий стол"
 
 current_index = pages.index(st.session_state.page)
 
@@ -201,7 +201,7 @@ if selected_page != st.session_state.page:
 # ===================================================
 # PAGE: НОВЫЙ КЛИЕНТ (New/Edit Client)
 # ===================================================
-if selected_page == "Новый клиент":
+if selected_page == "➕ Новый":
     edit_client_id = st.session_state.get("editing_client_id")
     edit_client_data = None
     
@@ -272,7 +272,7 @@ if selected_page == "Новый клиент":
 # ===================================================
 # PAGE: БАЗА КЛИЕНТОВ
 # ===================================================
-elif selected_page == "База Клиентов":
+elif selected_page == "📋 Клиенты":
     st.title("📂 База Клиентов")
     df = get_cached_clients()
     
@@ -315,54 +315,20 @@ elif selected_page == "База Клиентов":
 # ===================================================
 # PAGE: КАРТОЧКА КЛИЕНТА
 # ===================================================
-elif selected_page == "Карточка Клиента":
-    st.title("🗂 Карточка Клиента")
-    df = get_cached_clients()
-    
-    if not df.empty:
-        all_clients_list = sorted([str(x) for x in df["fio"].dropna().unique().tolist()])
-        
-        def search_clients(searchterm: str):
-            if not searchterm:
-                return []
-            return [name for name in all_clients_list if name.lower().startswith(searchterm.lower())]
-        
-        selected_name = st_searchbox(
-            search_clients,
-            key="client_searchbox",
-            placeholder="Начните вводить ФИО...",
-            label="Поиск клиента"
-        )
-        
-        if selected_name:
-            filtered = df[df["fio"] == selected_name]
-            if not filtered.empty:
-                client = filtered.iloc[0].to_dict()
-                
-                st.write(f"**Яндекс Диск:** {client.get('yandex_link', 'Нет ссылки')}")
-                
-                if st.button("✏️ Редактировать"):
-                    st.session_state.editing_client_id = client["id"]
-                    st.session_state.page = "Новый клиент"
-                    st.rerun()
-                
-                with st.expander("Все данные"):
-                    st.json(client)
-    else:
-        st.info("База клиентов пуста")
+
 
 
 # ===================================================
 # PAGE: БАЗА БАНКОВ
 # ===================================================
-elif selected_page == "База Банков":
+elif selected_page == "🏦 Банки":
     render_banks_page(bank_repo, get_cached_banks, clear_cache)
 
 
 # ===================================================
 # PAGE: РАБОЧИЙ СТОЛ
 # ===================================================
-elif selected_page == "Рабочий стол":
+elif selected_page == "🖥 Рабочий стол":
     all_clients = get_cached_clients()
     
     if all_clients.empty:
@@ -656,7 +622,7 @@ elif selected_page == "Рабочий стол":
                         st.rerun()
 
 # ============ СЕРВИСЫ ============
-elif selected_page == "Сервисы":
+elif selected_page == "⚙️ Сервисы":
     
     # CSS for service buttons
     st.markdown("""
