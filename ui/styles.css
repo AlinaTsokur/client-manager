@@ -76,7 +76,7 @@
     [data-testid="stRadio"]:has(input[aria-label="➕ Новый"])>div,
     [data-testid="stRadio"]:has(input[aria-label="📋 Клиенты"])>div,
     [data-testid="stRadio"]:has(input[aria-label="🏦 Банки"])>div,
-    [data-testid="stRadio"]:has(input[aria-label="🖥 Рабочий стол"])>div,
+    [data-testid="stRadio"]:has(input[aria-label="💻 Рабочий стол"])>div,
     [data-testid="stRadio"]:has(input[aria-label="⚙️ Сервисы"])>div {
         flex-direction: row !important;
         flex-wrap: wrap !important;
@@ -89,7 +89,7 @@
     [data-testid="stRadio"]:has(input[aria-label="➕ Новый"]) label>div:first-child,
     [data-testid="stRadio"]:has(input[aria-label="📋 Клиенты"]) label>div:first-child,
     [data-testid="stRadio"]:has(input[aria-label="🏦 Банки"]) label>div:first-child,
-    [data-testid="stRadio"]:has(input[aria-label="🖥 Рабочий стол"]) label>div:first-child,
+    [data-testid="stRadio"]:has(input[aria-label="💻 Рабочий стол"]) label>div:first-child,
     [data-testid="stRadio"]:has(input[aria-label="⚙️ Сервисы"]) label>div:first-child {
         display: none !important;
     }
@@ -98,7 +98,7 @@
     [data-testid="stRadio"]:has(input[aria-label="➕ Новый"]) label,
     [data-testid="stRadio"]:has(input[aria-label="📋 Клиенты"]) label,
     [data-testid="stRadio"]:has(input[aria-label="🏦 Банки"]) label,
-    [data-testid="stRadio"]:has(input[aria-label="🖥 Рабочий стол"]) label,
+    [data-testid="stRadio"]:has(input[aria-label="💻 Рабочий стол"]) label,
     [data-testid="stRadio"]:has(input[aria-label="⚙️ Сервисы"]) label {
         display: flex !important;
         align-items: center !important;
@@ -116,7 +116,7 @@
     [data-testid="stRadio"]:has(input[aria-label="➕ Новый"]) label p,
     [data-testid="stRadio"]:has(input[aria-label="📋 Клиенты"]) label p,
     [data-testid="stRadio"]:has(input[aria-label="🏦 Банки"]) label p,
-    [data-testid="stRadio"]:has(input[aria-label="🖥 Рабочий стол"]) label p,
+    [data-testid="stRadio"]:has(input[aria-label="💻 Рабочий стол"]) label p,
     [data-testid="stRadio"]:has(input[aria-label="⚙️ Сервисы"]) label p {
         margin: 0 !important;
         font-size: 28px !important;
