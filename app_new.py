@@ -208,13 +208,6 @@ elif selected_page == "📋 Клиенты":
             }
         )
 
-
-# ===================================================
-# PAGE: КАРТОЧКА КЛИЕНТА
-# ===================================================
-
-
-
 # ===================================================
 # PAGE: БАЗА БАНКОВ
 # ===================================================
@@ -330,7 +323,7 @@ elif selected_page == "🖥 Рабочий стол":
                         with c_btn1:
                             if st.button("✏️ Клиент", key=f"btn_edit_{client_id}"):
                                 st.session_state.editing_client_id = client_id
-                                st.session_state.page = "Новый клиент"
+                                st.session_state.page = "➕ Новый"
                                 st.rerun()
                         
                         with c_btn2:
