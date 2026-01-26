@@ -81,6 +81,12 @@ current_index = pages.index(st.session_state.page)
 if st.query_params.get("page") != st.session_state.page:
     st.query_params["page"] = st.session_state.page
 
+# Ensure radio button stays in sync with page state
+if "main_nav" not in st.session_state:
+    st.session_state.main_nav = st.session_state.page
+elif st.session_state.main_nav != st.session_state.page:
+    st.session_state.main_nav = st.session_state.page
+
 selected_page = st.radio(
     "Меню",
     pages,
@@ -325,6 +331,8 @@ elif selected_page == "🖥 Рабочий стол":
                             if st.button("✏️ Клиент", key=f"btn_edit_{client_id}"):
                                 st.session_state.editing_client_id = client_id
                                 st.session_state.page = "➕ Новый"
+                                # Force radio button update
+                                st.session_state.main_nav = "➕ Новый"
                                 st.rerun()
                         
                         with c_btn2:
