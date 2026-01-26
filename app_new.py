@@ -244,11 +244,12 @@ elif selected_page == "💻 Рабочий стол":
         # Default: all available except excluded
         valid_defaults = [s for s in available_statuses if s not in excluded_statuses]
         
-        c1, c2 = st.columns(2)
-        with c1:
-            selected_statuses = st.multiselect("Статус", options=available_statuses, default=valid_defaults, label_visibility="collapsed")
-        with c2:
-            selected_types = st.multiselect("Тип", options=LOAN_TYPE_OPTIONS, label_visibility="collapsed", placeholder="Тип сделки")
+        with st.expander("🔍 Фильтры", expanded=False):
+            c1, c2 = st.columns(2)
+            with c1:
+                selected_statuses = st.multiselect("Статус", options=available_statuses, default=valid_defaults, label_visibility="collapsed")
+            with c2:
+                selected_types = st.multiselect("Тип", options=LOAN_TYPE_OPTIONS, label_visibility="collapsed", placeholder="Тип сделки")
         
         filtered_df = all_clients.copy()
         if selected_statuses:
