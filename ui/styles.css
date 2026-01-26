@@ -1,15 +1,17 @@
 /* === FILE UPLOADER STYLES === */
-[data-testid='stFileUploader'] section > div:first-child {
+[data-testid='stFileUploader'] section>div:first-child {
     display: flex !important;
     align-items: center !important;
     justify-content: flex-end !important;
     gap: 10px;
 }
-[data-testid='stFileUploader'] section > div:first-child > span,
-[data-testid='stFileUploader'] section > div:first-child > small,
-[data-testid='stFileUploader'] section > div:first-child > div {
+
+[data-testid='stFileUploader'] section>div:first-child>span,
+[data-testid='stFileUploader'] section>div:first-child>small,
+[data-testid='stFileUploader'] section>div:first-child>div {
     display: none !important;
 }
+
 [data-testid='stFileUploader'] section {
     padding: 0px !important;
     min-height: 40px !important;
@@ -18,9 +20,11 @@
     align-items: center !important;
     justify-content: flex-end !important;
 }
+
 [data-testid='stFileUploader'] section svg {
     display: none !important;
 }
+
 [data-testid='stFileUploader'] section button {
     border: 1px solid #4CAF50;
     color: white;
@@ -33,6 +37,7 @@
     line-height: 0;
     margin: 0 !important;
 }
+
 [data-testid='stFileUploader'] section button::after {
     content: "Выбрать файлы";
     visibility: visible;
@@ -56,6 +61,7 @@
     padding-right: 10rem !important;
     max-width: 100% !important;
 }
+
 /* Compact line spacing for bank interactions only */
 .compact-banks p {
     margin-bottom: 0.2rem !important;
@@ -69,42 +75,68 @@
         padding-right: 1rem !important;
         padding-top: 1rem !important;
     }
-    
+
     /* Fix radio buttons on mobile - compact row wrap */
-    [data-testid="stRadio"] > div {
+    [data-testid="stRadio"]>div {
         flex-direction: row !important;
         flex-wrap: wrap !important;
-        justify-content: flex-start !important;
+        justify-content: center !important;
         gap: 8px !important;
+        width: 100% !important;
     }
-    
+
+    /* Make each option look like a square icon button */
     [data-testid="stRadio"] label {
         white-space: nowrap !important;
-        overflow: visible !important;
-        font-size: 14px !important;
-        padding-right: 10px !important;
+        overflow: hidden !important;
+        font-size: 24px !important;
+        /* Bigger icon */
+        padding: 8px 12px !important;
+        background-color: #262730;
+        border-radius: 8px;
+        border: 1px solid #444;
+        width: 50px !important;
+        /* Fixed width */
+        justify-content: center !important;
+        display: flex !important;
     }
-    
+
+    /* Hide text by limiting width of inner container */
+    [data-testid="stRadio"] label div[data-testid="stMarkdownContainer"] p {
+        width: 28px !important;
+        /* Show only the emoji */
+        overflow: hidden !important;
+        white-space: nowrap !important;
+        display: block !important;
+        text-overflow: clip !important;
+        margin: 0 !important;
+    }
+
     /* Prevent word breaking */
-    h1, h2, h3, p, label, span {
+    h1,
+    h2,
+    h3,
+    p,
+    label,
+    span {
         word-break: keep-all !important;
         overflow-wrap: normal !important;
     }
-    
+
     /* Bigger title on mobile */
     h1 {
         font-size: 1.5rem !important;
         white-space: nowrap !important;
     }
-    
+
     /* Stack columns vertically on mobile */
     [data-testid="column"] {
         width: 100% !important;
         flex: 1 1 100% !important;
     }
-    
+
     /* Make buttons full width on mobile */
-    .stButton > button {
+    .stButton>button {
         width: 100% !important;
     }
 }
