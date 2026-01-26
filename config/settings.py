@@ -2,23 +2,26 @@
 Application settings loaded from environment variables.
 """
 import os
-from dataclasses import dataclass
 from dotenv import load_dotenv
 
-# Load .env file
+# Load .env file (only works locally, Railway sets env vars directly)
 load_dotenv()
 
 
-@dataclass
 class Settings:
     """Application configuration."""
     
-    # Supabase
-    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
-    SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
+    @property
+    def SUPABASE_URL(self) -> str:
+        return os.getenv("SUPABASE_URL", "")
     
-    # Yandex Disk
-    YANDEX_TOKEN: str = os.getenv("YANDEX_TOKEN", "")
+    @property
+    def SUPABASE_KEY(self) -> str:
+        return os.getenv("SUPABASE_KEY", "")
+    
+    @property
+    def YANDEX_TOKEN(self) -> str:
+        return os.getenv("YANDEX_TOKEN", "")
     
     # App paths
     FONTS_DIR: str = "fonts"
