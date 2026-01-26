@@ -108,8 +108,52 @@ HIDE_UPLOADER_CSS = """
     margin-bottom: 0.2rem !important;
     line-height: 1.2 !important;
 }
+
+/* === MOBILE RESPONSIVE === */
+@media (max-width: 768px) {
+    .block-container {
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+        padding-top: 1rem !important;
+    }
+    
+    /* Fix radio buttons on mobile */
+    [data-testid="stRadio"] > div {
+        flex-direction: column !important;
+    }
+    
+    [data-testid="stRadio"] label {
+        white-space: nowrap !important;
+        overflow: visible !important;
+        font-size: 14px !important;
+    }
+    
+    /* Prevent word breaking */
+    h1, h2, h3, p, label, span {
+        word-break: keep-all !important;
+        overflow-wrap: normal !important;
+    }
+    
+    /* Bigger title on mobile */
+    h1 {
+        font-size: 1.5rem !important;
+        white-space: nowrap !important;
+    }
+    
+    /* Stack columns vertically on mobile */
+    [data-testid="column"] {
+        width: 100% !important;
+        flex: 1 1 100% !important;
+    }
+    
+    /* Make buttons full width on mobile */
+    .stButton > button {
+        width: 100% !important;
+    }
+}
 </style>
 """
+
 
 # --- Page Config ---
 st.set_page_config(page_title="Mortgage CRM", layout="wide", page_icon="🏦")
