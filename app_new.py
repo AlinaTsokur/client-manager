@@ -117,15 +117,19 @@ HIDE_UPLOADER_CSS = """
         padding-top: 1rem !important;
     }
     
-    /* Fix radio buttons on mobile */
+    /* Fix radio buttons on mobile - compact row wrap */
     [data-testid="stRadio"] > div {
-        flex-direction: column !important;
+        flex-direction: row !important;
+        flex-wrap: wrap !important;
+        justify-content: flex-start !important;
+        gap: 8px !important;
     }
     
     [data-testid="stRadio"] label {
         white-space: nowrap !important;
         overflow: visible !important;
         font-size: 14px !important;
+        padding-right: 10px !important;
     }
     
     /* Prevent word breaking */
