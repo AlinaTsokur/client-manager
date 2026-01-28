@@ -121,7 +121,7 @@ if selected_page == "➕ Новый":
         
         btn_col1, btn_col2, _ = st.columns([1, 1, 3])
         with btn_col1:
-            cancel_clicked = st.button("❌ Отмена редактирования")
+            cancel_clicked = st.button("❌ Отмена")
         with btn_col2:
             save_clicked = st.button("💾 Сохранить изменения")
         
