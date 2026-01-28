@@ -55,7 +55,6 @@ def load_css():
 st.set_page_config(page_title="Mortgage CRM", layout="wide", page_icon="🏦")
 load_css()
 
-st.title("СОКОЛ")
 
 # --- Navigation Logic ---
 pages = ["➕ Новый", "📋 Клиенты", "🏦 Банки", "💻 Рабочий стол", "⚙️ Сервисы"]
@@ -120,14 +119,20 @@ if selected_page == "➕ Новый":
             st.query_params.pop("edit", None)
             st.rerun()
         
-        if st.button("❌ Отмена редактирования"):
+        btn_col1, btn_col2, _ = st.columns([1, 1, 3])
+        with btn_col1:
+            cancel_clicked = st.button("❌ Отмена редактирования")
+        with btn_col2:
+            save_clicked = st.button("💾 Сохранить изменения")
+        
+        if cancel_clicked:
             st.session_state.editing_client_id = None
             st.query_params.pop("edit", None)
             st.rerun()
         
         form_data = render_client_form(client_data=edit_client_data, key_prefix="edit_")
         
-        if st.button("💾 Сохранить изменения"):
+        if save_clicked:
             with st.spinner("Сохранение..."):
                 data = form_data.copy()
                 data["id"] = edit_client_data["id"]
