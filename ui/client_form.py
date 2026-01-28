@@ -3,6 +3,8 @@ Complete client form renderer with all fields.
 """
 import streamlit as st
 import pandas as pd
+import json
+import streamlit.components.v1 as components
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 
@@ -239,7 +241,61 @@ def render_client_form(client_data=None, key_prefix=""):
         
         snils = pd_r2_3.text_input("СНИЛС", value=default_snils, key=f"{key_prefix}snils")
         inn = pd_r2_4.text_input("ИНН", value=default_inn, key=f"{key_prefix}inn")
-        pd_r2_5.markdown("<div style='padding-top: 28px;'><a href='https://service.nalog.ru/inn.do' target='_blank' style='text-decoration: none; font-size: 20px;'>🔍</a></div>", unsafe_allow_html=True)
+        
+        # --- Robust nalog JSON: берём актуальные значения из session_state ---
+        def ss(key, fallback=""):
+            return st.session_state.get(f"{key_prefix}{key}", fallback)
+            
+        # Helper to get current names (user might have edited them)
+        _surname, _name, _patronymic = parse_fio(ss("fio", default_fio))
+        
+        nalog_data = {
+            "source": "sokol",
+            "surname": clean_value(_surname),
+            "name": clean_value(_name),
+            "patronymic": clean_value(_patronymic),
+            "dob": str(ss("dob", default_dob)) if ss("dob", default_dob) else None,
+            "passport_ser": clean_int_str(ss("pass_ser", default_pass_ser)),
+            "passport_num": clean_int_str(ss("pass_num", default_pass_num)),
+            "passport_date": str(ss("pass_date", default_pass_date)) if ss("pass_date", default_pass_date) else None,
+        }
+        nalog_json = json.dumps(nalog_data, ensure_ascii=False)
+        
+        # Prepare for JS: unique ID and safe string encoding
+        btn_id = f"copyOpenBtn_{key_prefix}".replace("-", "_").replace(".", "_")
+        txt_js = json.dumps(nalog_json, ensure_ascii=False)
+        
+        with pd_r2_5:
+            # Custom JS Button via components.html
+            btn_html = f"""
+            <div style="padding-top: 28px;">
+              <button id="{btn_id}"
+                style="border:none;background:transparent;font-size:20px;cursor:pointer;padding:0;"
+                title="Скопировать данные и открыть ФНС">🔍</button>
+            </div>
+
+            <script>
+              (function() {{
+                const txt = {txt_js};
+                const btn = document.getElementById("{btn_id}");
+                btn.addEventListener("click", async () => {{
+                  try {{
+                    await navigator.clipboard.writeText(txt);
+                    btn.textContent = "✅";
+                    setTimeout(() => btn.textContent = "🔍", 1200);
+                  }} catch (e) {{
+                    // если clipboard заблокирован — просто оставляем fallback ниже
+                  }}
+                  window.open("https://service.nalog.ru/inn.do", "_blank", "noopener,noreferrer");
+                }});
+              }})();
+            </script>
+            """
+            components.html(btn_html, height=55, scrolling=False)
+
+        # Fallback: Streamlit Copy работает всегда (вынесли из узкой колонки для удобства)
+        with st.expander("JSON для nalog", expanded=False):
+            st.code(nalog_json, language="json")
         
         # Marital Status, Children, Marriage Contract
         pd_r3_1, pd_r3_2, pd_r3_3 = st.columns([0.9, 1.1, 2.2])
