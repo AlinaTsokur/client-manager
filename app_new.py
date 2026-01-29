@@ -418,8 +418,6 @@ elif selected_page == "💻 Рабочий стол":
 
                         else:
                             # ===== MOBILE: 2x2 =====
-                            st.markdown('<div data-actions="desk">', unsafe_allow_html=True)
-                            
                             r1c1, r1c2 = st.columns(2)
                             with r1c1:
                                 st.button("✏️ Клиент", key=f"btn_edit_{client_id}", use_container_width=True, on_click=open_client)
@@ -431,8 +429,6 @@ elif selected_page == "💻 Рабочий стол":
                                 st.button(toggle_mail_label, key=f"btn_mail_{client_id}", use_container_width=True, on_click=toggle_mail)
                             with r2c2:
                                 st.button(toggle_docs_label, key=f"btn_docs_{client_id}", use_container_width=True, on_click=toggle_docs)
-                            
-                            st.markdown('</div>', unsafe_allow_html=True)
                         
                         # Row 3: File Uploader (Full Width)
                         with st.container():

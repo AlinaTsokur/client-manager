@@ -131,21 +131,23 @@
     }
 }
 
-/* ===== FORCE 2x2 ACTION BUTTONS ON MOBILE (Desk page) ===== */
+/* ===== FIX: iPhone/мобилка — НЕ ДАВАТЬ columns сваливаться в 1 колонку ===== */
 @media (max-width: 768px) {
 
-    /* Внутри нашего якоря заставляем колонки НЕ сворачиваться в 1 */
-    [data-actions="desk"] [data-testid="stHorizontalBlock"] {
+    /* Запрещаем перенос колонок в строке ВНУТРИ карточки (Expander) */
+    section[data-testid="stExpander"] div[data-testid="stHorizontalBlock"] {
         flex-wrap: nowrap !important;
         gap: 8px !important;
     }
 
-    [data-actions="desk"] [data-testid="column"] {
+    /* Разрешаем колонкам сжиматься */
+    section[data-testid="stExpander"] div[data-testid="column"] {
         flex: 1 1 0 !important;
         min-width: 0 !important;
     }
 
-    [data-actions="desk"] button {
+    /* Кнопки занимают всю ширину колонки */
+    section[data-testid="stExpander"] div[data-testid="stButton"]>button {
         width: 100% !important;
     }
 }
