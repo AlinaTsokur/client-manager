@@ -125,8 +125,21 @@ def render_banks_page(bank_repo: BankRepository, get_cached_banks, clear_cache):
         
         display_df["Срок"] = df.apply(lambda r: format_range(r, "term_min", "term_max"), axis=1)
         display_df["Сумма (млн)"] = df.apply(lambda r: format_range(r, "amount_min", "amount_max"), axis=1)
+        display_df["ЛК"] = df["lk_link"] if "lk_link" in df.columns else None
         
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "ЛК": st.column_config.LinkColumn(
+                    "Личный кабинет",
+                    display_text="🔗 Вход",
+                    help="Ссылка на личный кабинет банка",
+                    width="small"
+                )
+            }
+        )
         
         # --- Edit section ---
         st.markdown("---")
