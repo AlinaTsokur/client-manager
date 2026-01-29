@@ -8,6 +8,7 @@ from datetime import datetime, date
 import time
 import json
 from streamlit_searchbox import st_searchbox
+from streamlit_js_eval import streamlit_js_eval
 
 # Local imports
 from config.settings import settings
@@ -50,6 +51,10 @@ def clear_cache():
 def load_css():
     with open("ui/styles.css", "r") as f:
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+    
+    # Responsive Actions CSS
+    # (Cleaned up: we now use Python-side rendering based on screen width, 
+    # so no complex display:none logic is needed here)
 
 # --- Page Config ---
 st.set_page_config(page_title="Mortgage CRM", layout="wide", page_icon="🏦")
@@ -129,7 +134,7 @@ if selected_page == "➕ Новый":
             save_clicked = st.button("💾 Сохранить изменения", use_container_width=True, type="primary")
         
         if cancel_clicked:
-            st.session_state.editing_client_id = None
+            st.session_state.pop("editing_client_id", None)
             st.query_params.pop("edit", None)
             st.rerun()
         
@@ -146,7 +151,7 @@ if selected_page == "➕ Новый":
                 if client_repo.save(data):
                     clear_cache()
                     st.success(f"Клиент {data['fio']} обновлен!")
-                    st.session_state.editing_client_id = None
+                    st.session_state.pop("editing_client_id", None)
                     st.query_params.pop("edit", None)
                     time.sleep(1)
                     st.rerun()
@@ -246,6 +251,23 @@ elif selected_page == "💻 Рабочий стол":
         banks_db_df = get_cached_banks()
         banks_list = banks_db_df.to_dict('records') if not banks_db_df.empty else []
         
+        # --- Detect screen width (once per rerun) ---
+        width = streamlit_js_eval(
+            js_expressions="window.innerWidth",
+            key="__screen_width",
+            want_output=True
+        )
+
+        if width is not None:
+            st.session_state["__screen_width_cached"] = width
+
+        try:
+            width_i = int(float(st.session_state.get("__screen_width_cached", 1200)))
+        except Exception:
+            width_i = 1200
+
+        is_mobile = width_i < 768
+        
         # Filters with defaults (all except "Отказ" and "Архив")
         excluded_statuses = ["Отказ", "Архив"]
         available_statuses = all_clients["status"].dropna().unique().tolist()
@@ -274,7 +296,14 @@ elif selected_page == "💻 Рабочий стол":
             
             total_items = len(filtered_df)
             total_pages = max(1, (total_items - 1) // ITEMS_PER_PAGE + 1)
-            current_page = min(st.session_state.desktop_page, total_pages)
+        
+            # Pagination boundary check (fix for filter changes)
+            if st.session_state.desktop_page > total_pages:
+                st.session_state.desktop_page = total_pages
+            if st.session_state.desktop_page < 1:
+                st.session_state.desktop_page = 1
+                
+            current_page = st.session_state.desktop_page
             
             start_idx = (current_page - 1) * ITEMS_PER_PAGE
             end_idx = min(start_idx + ITEMS_PER_PAGE, total_items)
@@ -288,13 +317,13 @@ elif selected_page == "💻 Рабочий стол":
                 with st.container():
                     fio = client.get("fio", "Без имени")
                     status = client.get("status", "Новый")
-                    credit_sum = safe_int(client.get("credit_sum", 0))
+                    credit_sum = safe_int(client.get("credit_sum", 0)) or 0
                     obj_type = str(client.get("obj_type", "") or "")
                     obj_city = str(client.get("obj_city", "") or "")
                     addr_info = f"{obj_type} | {obj_city}" if obj_type and obj_city else obj_type or obj_city
                     
                     # Expander with all info in label (status as plain text - Streamlit limitation)
-                    expander_label = f"👤 {fio}  ·  {credit_sum:,} руб.  ·  {addr_info}  ·  {status}"
+                    expander_label = f"👤 {fio}  ·  {int(credit_sum):,}".replace(",", " ") + f" руб.  ·  {addr_info}  ·  {status}"
                     with st.expander(expander_label, expanded=False):
                         # Bank Interactions Display
                         interactions = []
@@ -305,6 +334,8 @@ elif selected_page == "💻 Рабочий стол":
                                     interactions = json.loads(interactions_json)
                                 elif isinstance(interactions_json, list):
                                     interactions = interactions_json
+                                elif isinstance(interactions_json, dict):
+                                    interactions = [interactions_json]
                             except Exception as e:
                                 interactions = []
                                 print(f"Warning: bank_interactions parse error: {e}")
@@ -315,7 +346,7 @@ elif selected_page == "💻 Рабочий стол":
                             st.markdown(f"📂 [Яндекс.Диск]({yandex_link})")
                         
                         # Collapsible client info for easy copying
-                        with st.expander("📋 Инфо (для копирования)", expanded=False):
+                        with st.expander("📋 Инфо", expanded=False):
                             client_info = format_client_info(client.to_dict())
                             st.code(client_info, language=None)
                         
@@ -329,6 +360,7 @@ elif selected_page == "💻 Рабочий стол":
                             st.code(banks_text.strip(), language=None)
                         
                         # Action Buttons - 2x2 Grid + Uploader below
+                        # --- Action state keys ---
                         edit_key = f"edit_banks_{client_id}"
                         write_key = f"write_bank_{client_id}"
                         docs_key = f"docs_desk_{client_id}"
@@ -337,43 +369,61 @@ elif selected_page == "💻 Рабочий стол":
                         if write_key not in st.session_state: st.session_state[write_key] = False
                         if docs_key not in st.session_state: st.session_state[docs_key] = False
                         
-                        # Row 1: Client & Banks
-                        r1_c1, r1_c2 = st.columns(2)
-                        with r1_c1:
-                            if st.button("✏️ Клиент", key=f"btn_edit_{client_id}", use_container_width=True):
-                                st.query_params["page"] = "➕ Новый"
-                                st.query_params["edit"] = client_id
-                                st.session_state["nav_to"] = "➕ Новый"
-                                st.rerun()
+                        toggle_banks_label = "❌ Закрыть" if st.session_state[edit_key] else "✏️ Банки"
+                        toggle_mail_label  = "❌ Закрыть" if st.session_state[write_key] else "📧 Письмо"
+                        toggle_docs_label  = "❌ Закрыть" if st.session_state[docs_key] else "📄 Документы"
                         
-                        with r1_c2:
-                            toggle_label = "❌ Закрыть" if st.session_state[edit_key] else "✏️ Банки"
-                            if st.button(toggle_label, key=f"btn_banks_{client_id}", use_container_width=True):
-                                st.session_state[edit_key] = not st.session_state[edit_key]
-                                if st.session_state[edit_key]:
-                                    st.session_state[write_key] = False
-                                    st.session_state[docs_key] = False
-                                st.rerun()
-                                
-                        # Row 2: Mail & Docs
-                        r2_c1, r2_c2 = st.columns(2)
-                        with r2_c1:
-                            w_label = "❌ Закрыть" if st.session_state[write_key] else "📧 Письмо"
-                            if st.button(w_label, key=f"btn_write_{client_id}", use_container_width=True):
-                                st.session_state[write_key] = not st.session_state[write_key]
-                                if st.session_state[write_key]:
-                                    st.session_state[edit_key] = False
-                                    st.session_state[docs_key] = False
-                                st.rerun()
-                        
-                        with r2_c2:
-                            d_label = "❌ Закрыть" if st.session_state[docs_key] else "📄 Документы"
-                            if st.button(d_label, key=f"btn_docs_{client_id}", use_container_width=True):
-                                st.session_state[docs_key] = not st.session_state[docs_key]
-                                if st.session_state[docs_key]:
-                                    st.session_state[edit_key] = False
-                                    st.session_state[write_key] = False
-                                st.rerun()
+                        # ---------- ONE adaptive actions block (no duplicates) ----------
+                        # Actions:
+                        # Desktop (>=768): 4 buttons in one row
+                        # Mobile (<768): 2 rows x 2 buttons
+
+                        # --- Handlers (no CSS, no duplicates) ---
+                        def open_client(cid=client_id):
+                            st.session_state["editing_client_id"] = cid
+                            st.session_state["nav_to"] = "➕ Новый"
+
+                        def toggle_banks(ek=edit_key, wk=write_key, dk=docs_key):
+                            st.session_state[ek] = not st.session_state[ek]
+                            if st.session_state[ek]:
+                                st.session_state[wk] = False
+                                st.session_state[dk] = False
+
+                        def toggle_mail(ek=edit_key, wk=write_key, dk=docs_key):
+                            st.session_state[wk] = not st.session_state[wk]
+                            if st.session_state[wk]:
+                                st.session_state[ek] = False
+                                st.session_state[dk] = False
+
+                        def toggle_docs(ek=edit_key, wk=write_key, dk=docs_key):
+                            st.session_state[dk] = not st.session_state[dk]
+                            if st.session_state[dk]:
+                                st.session_state[ek] = False
+                                st.session_state[wk] = False
+
+                        # --- Render layout depending on is_mobile ---
+                        if not is_mobile:
+                            c1, c2, c3, c4 = st.columns(4)
+                            with c1:
+                                st.button("✏️ Клиент", key=f"btn_edit_{client_id}", use_container_width=True, on_click=open_client)
+                            with c2:
+                                st.button(toggle_banks_label, key=f"btn_banks_{client_id}", use_container_width=True, on_click=toggle_banks)
+                            with c3:
+                                st.button(toggle_mail_label, key=f"btn_mail_{client_id}", use_container_width=True, on_click=toggle_mail)
+                            with c4:
+                                st.button(toggle_docs_label, key=f"btn_docs_{client_id}", use_container_width=True, on_click=toggle_docs)
+                        else:
+                            r1c1, r1c2 = st.columns(2)
+                            with r1c1:
+                                st.button("✏️ Клиент", key=f"btn_edit_{client_id}", use_container_width=True, on_click=open_client)
+                            with r1c2:
+                                st.button(toggle_banks_label, key=f"btn_banks_{client_id}", use_container_width=True, on_click=toggle_banks)
+
+                            r2c1, r2c2 = st.columns(2)
+                            with r2c1:
+                                st.button(toggle_mail_label, key=f"btn_mail_{client_id}", use_container_width=True, on_click=toggle_mail)
+                            with r2c2:
+                                st.button(toggle_docs_label, key=f"btn_docs_{client_id}", use_container_width=True, on_click=toggle_docs)
                         
                         # Row 3: File Uploader (Full Width)
                         with st.container():
@@ -394,7 +444,6 @@ elif selected_page == "💻 Рабочий стол":
                         
                         # --- Bank Interactions Editor ---
                         if st.session_state[edit_key]:
-                            st.markdown("---")
                             st.markdown("**Редактирование взаимодействий:**")
                             
                             df_inter = pd.DataFrame(interactions) if interactions else pd.DataFrame(columns=["bank_name", "stage", "comment", "date"])
@@ -430,7 +479,6 @@ elif selected_page == "💻 Рабочий стол":
                         
                         # --- Email Generation ---
                         if st.session_state[write_key]:
-                            st.markdown("---")
                             wb_c1, wb_c2 = st.columns([1, 2])
                             bank_names = [b["name"] for b in banks_list]
                             
@@ -448,7 +496,6 @@ elif selected_page == "💻 Рабочий стол":
                         
                         # --- Document Generation ---
                         if st.session_state[docs_key]:
-                            st.markdown("---")
                             st.markdown("**📄 Генерация документов**")
                             bank_names = [b["name"] for b in banks_list]
                             
