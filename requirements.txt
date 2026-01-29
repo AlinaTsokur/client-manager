@@ -9,3 +9,4 @@ streamlit-searchbox
 python-dateutil
 supabase
 python-dotenv
+streamlit-js-eval
