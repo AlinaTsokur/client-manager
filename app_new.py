@@ -121,11 +121,12 @@ if selected_page == "➕ Новый":
             st.query_params.pop("edit", None)
             st.rerun()
         
-        btn_col1, btn_col2, _ = st.columns([1, 1, 3])
+        # Custom Mobile Layout: Cancel (small) + Save (large) on one row
+        btn_col1, btn_col2 = st.columns([1, 2])
         with btn_col1:
-            cancel_clicked = st.button("❌ Отмена")
+            cancel_clicked = st.button("❌ Отмена", use_container_width=True)
         with btn_col2:
-            save_clicked = st.button("💾 Сохранить изменения")
+            save_clicked = st.button("💾 Сохранить изменения", use_container_width=True, type="primary")
         
         if cancel_clicked:
             st.session_state.editing_client_id = None
@@ -327,7 +328,7 @@ elif selected_page == "💻 Рабочий стол":
                                 banks_text += f"🔹 {bank} | {stage} : {comment}\n"
                             st.code(banks_text.strip(), language=None)
                         
-                        # Action Buttons - all in one row
+                        # Action Buttons - 2x2 Grid + Uploader below
                         edit_key = f"edit_banks_{client_id}"
                         write_key = f"write_bank_{client_id}"
                         docs_key = f"docs_desk_{client_id}"
@@ -336,43 +337,46 @@ elif selected_page == "💻 Рабочий стол":
                         if write_key not in st.session_state: st.session_state[write_key] = False
                         if docs_key not in st.session_state: st.session_state[docs_key] = False
                         
-                        c_btn1, c_btn2, c_btn3, c_btn4, c_btn5 = st.columns([1, 1, 1, 1.2, 2])
-                        
-                        with c_btn1:
-                            if st.button("✏️ Клиент", key=f"btn_edit_{client_id}"):
+                        # Row 1: Client & Banks
+                        r1_c1, r1_c2 = st.columns(2)
+                        with r1_c1:
+                            if st.button("✏️ Клиент", key=f"btn_edit_{client_id}", use_container_width=True):
                                 st.query_params["page"] = "➕ Новый"
                                 st.query_params["edit"] = client_id
                                 st.session_state["nav_to"] = "➕ Новый"
                                 st.rerun()
                         
-                        with c_btn2:
+                        with r1_c2:
                             toggle_label = "❌ Закрыть" if st.session_state[edit_key] else "✏️ Банки"
-                            if st.button(toggle_label, key=f"btn_banks_{client_id}"):
+                            if st.button(toggle_label, key=f"btn_banks_{client_id}", use_container_width=True):
                                 st.session_state[edit_key] = not st.session_state[edit_key]
                                 if st.session_state[edit_key]:
                                     st.session_state[write_key] = False
                                     st.session_state[docs_key] = False
                                 st.rerun()
-                        
-                        with c_btn3:
+                                
+                        # Row 2: Mail & Docs
+                        r2_c1, r2_c2 = st.columns(2)
+                        with r2_c1:
                             w_label = "❌ Закрыть" if st.session_state[write_key] else "📧 Письмо"
-                            if st.button(w_label, key=f"btn_write_{client_id}"):
+                            if st.button(w_label, key=f"btn_write_{client_id}", use_container_width=True):
                                 st.session_state[write_key] = not st.session_state[write_key]
                                 if st.session_state[write_key]:
                                     st.session_state[edit_key] = False
                                     st.session_state[docs_key] = False
                                 st.rerun()
                         
-                        with c_btn4:
+                        with r2_c2:
                             d_label = "❌ Закрыть" if st.session_state[docs_key] else "📄 Документы"
-                            if st.button(d_label, key=f"btn_docs_{client_id}"):
+                            if st.button(d_label, key=f"btn_docs_{client_id}", use_container_width=True):
                                 st.session_state[docs_key] = not st.session_state[docs_key]
                                 if st.session_state[docs_key]:
                                     st.session_state[edit_key] = False
                                     st.session_state[write_key] = False
                                 st.rerun()
                         
-                        with c_btn5:
+                        # Row 3: File Uploader (Full Width)
+                        with st.container():
                             desk_up = st.file_uploader("Загрузка файлов", accept_multiple_files=True, label_visibility="collapsed", key=f"desk_up_{client_id}")
                             if desk_up:
                                 folder_name = yandex_service.get_client_folder_name(client.to_dict())
