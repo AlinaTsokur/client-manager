@@ -87,6 +87,7 @@ if "main_nav" not in st.session_state:
     st.session_state["main_nav"] = qp if qp in pages else "💻 Рабочий стол"
 
 # 2. Render Radio (Single Source of Truth)
+st.markdown('<div class="mobile-nav">', unsafe_allow_html=True)
 selected_page = st.radio(
     "Меню",
     pages,
@@ -94,6 +95,7 @@ selected_page = st.radio(
     label_visibility="collapsed",
     key="main_nav"
 )
+st.markdown('</div>', unsafe_allow_html=True)
 
 # 3. Sync page state and URL with radio selection
 st.session_state["page"] = selected_page

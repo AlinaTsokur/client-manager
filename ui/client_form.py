@@ -202,6 +202,95 @@ def render_client_form(client_data=None, key_prefix=""):
     # =========================================
     # TABS
     # =========================================
+    
+    # Initialize variables to prevent UnboundLocalError if tabs are skipped or fail
+    
+    # 1. Personal & Passport & Address
+    email = default_email
+    phone = default_phone
+    snils = default_snils
+    inn = default_inn
+    gender = default_gender
+    dob = default_dob
+    age_val = relativedelta(datetime.now().date(), default_dob).years if default_dob else ""
+    birth_place = default_birth_place
+    family = default_family
+    children_count = int(default_children_count) if default_children_count is not None else 0
+    children_dates = default_children_dates[:] if default_children_dates else []
+    marriage_contract = default_marriage_contract
+    
+    pass_ser = default_pass_ser
+    pass_num = default_pass_num
+    pass_code = default_pass_code
+    pass_issued = default_pass_issued
+    pass_date = default_pass_date
+    
+    addr_index = default_addr_index
+    addr_region = default_addr_region
+    addr_city = default_addr_city
+    addr_street = default_addr_street
+    addr_house = default_addr_house
+    addr_korpus = default_addr_korpus
+    addr_structure = default_addr_structure
+    addr_flat = default_addr_flat
+    
+    # 2. Job & Finance
+    job_type = default_job_type
+    job_official = (default_job_official == "Да")
+    job_company = default_job_company
+    job_sphere = default_job_sphere
+    job_industry = default_job_sphere # fallback if tab2 skipped
+    job_inn = default_job_inn
+    job_found_date = default_job_found_date
+    job_date = default_job_found_date # local var used in data
+    job_pos = default_job_pos
+    job_position = default_job_pos # local var used in data
+    job_income = default_job_income
+    job_start_date = default_job_start_date
+    job_ceo = default_job_ceo
+    job_phone_val = default_job_phone # used in return data
+    job_address = default_job_address
+    
+    exp_str = ""
+    total_exp_val = max(0, age_val - 18) if isinstance(age_val, int) else 0
+
+    loan_term = default_loan_term
+    has_coborrower = default_has_coborrower
+    current_debts = default_current_debts
+    mosgorsud_comment = default_mosgorsud_comment
+    fssp_comment = default_fssp_comment
+    block_comment = default_block_comment
+    
+    # Correct assets string construction (preserving defaults)
+    assets_str = ", ".join(default_assets)
+    if "Другое" in default_assets and default_other_asset:
+        assets_str += f" ({default_other_asset})"
+    
+    # 3. Pledge & Object (Initialize with DEFAULTS to avoid overwriting with empty on partial render)
+    copy_addr = False
+    
+    obj_type = default_obj_type
+    own_doc_type = default_obj_doc_type
+    obj_area = default_obj_area
+    obj_floor = default_obj_floor
+    obj_total_floors = default_obj_total_floors
+    obj_walls = default_obj_walls
+    obj_renovation = default_obj_renovation
+    obj_date = default_obj_date
+    
+    gift_donor_consent = default_gift_donor_consent
+    gift_donor_registered = default_gift_donor_registered
+    gift_donor_deregister = default_gift_donor_deregister
+    
+    obj_index = default_obj_index
+    obj_region = default_obj_region
+    obj_city = default_obj_city
+    obj_street = default_obj_street
+    obj_house = default_obj_house
+    obj_korpus = default_obj_korpus
+    obj_structure = default_obj_structure
+    obj_flat = default_obj_flat
+
     tab1, tab2, tab3 = st.tabs(["Личные данные", "Финансы", "Залог"])
     
     # =========================================
