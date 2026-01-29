@@ -134,20 +134,20 @@
 /* ===== FIX: iPhone/мобилка — НЕ ДАВАТЬ columns сваливаться в 1 колонку ===== */
 @media (max-width: 768px) {
 
-    /* Запрещаем перенос колонок в строке ВНУТРИ карточки (Expander) */
-    section[data-testid="stExpander"] div[data-testid="stHorizontalBlock"] {
+    /* Не даём горизонтальным блокам (st.columns) переноситься */
+    section[data-testid="stExpander"] [data-testid="stHorizontalBlock"] {
         flex-wrap: nowrap !important;
         gap: 8px !important;
     }
 
-    /* Разрешаем колонкам сжиматься */
-    section[data-testid="stExpander"] div[data-testid="column"] {
+    /* Даём колонкам сжиматься, иначе iPhone делает 1 колонку */
+    section[data-testid="stExpander"] [data-testid="column"] {
         flex: 1 1 0 !important;
         min-width: 0 !important;
     }
 
-    /* Кнопки занимают всю ширину колонки */
-    section[data-testid="stExpander"] div[data-testid="stButton"]>button {
+    /* Кнопка занимает всю ширину колонки */
+    section[data-testid="stExpander"] [data-testid="stButton"] button {
         width: 100% !important;
     }
 }
