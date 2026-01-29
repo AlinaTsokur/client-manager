@@ -48,9 +48,14 @@ def clear_cache():
 
 # --- CSS Styles ---
 # --- Load CSS ---
+from pathlib import Path
+
 def load_css():
-    with open("ui/styles.css", "r") as f:
-        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+    css_path = Path(__file__).parent / "ui" / "styles.css"
+    if css_path.exists():
+        st.markdown(f"<style>{css_path.read_text(encoding='utf-8')}</style>", unsafe_allow_html=True)
+    else:
+        st.warning(f"CSS file not found: {css_path}")
     
     # Responsive Actions CSS
     # (Cleaned up: we now use Python-side rendering based on screen width, 
@@ -252,23 +257,6 @@ elif selected_page == "💻 Рабочий стол":
         banks_db_df = get_cached_banks()
         banks_list = banks_db_df.to_dict('records') if not banks_db_df.empty else []
         
-        # --- Detect screen width (once per rerun) ---
-        width = streamlit_js_eval(
-            js_expressions="window.innerWidth",
-            key="__screen_width",
-            want_output=True
-        )
-
-        if width is not None:
-            st.session_state["__screen_width_cached"] = width
-
-        try:
-            width_i = int(float(st.session_state.get("__screen_width_cached", 1200)))
-        except Exception:
-            width_i = 1200
-
-        is_mobile = width_i < 768
-        
         # Filters with defaults (all except "Отказ" and "Архив")
         excluded_statuses = ["Отказ", "Архив"]
         available_statuses = all_clients["status"].dropna().unique().tolist()
@@ -404,31 +392,35 @@ elif selected_page == "💻 Рабочий стол":
                                 st.session_state[wk] = False
 
                         # --- Render layout depending on is_mobile ---
-                        if not is_mobile:
-                            # ===== DESKTOP: 4 buttons in one row =====
-                            c1, c2, c3, c4 = st.columns(4)
-                            with c1:
-                                st.button("✏️ Клиент", key=f"btn_edit_{client_id}", use_container_width=True, on_click=open_client)
-                            with c2:
-                                st.button(toggle_banks_label, key=f"btn_banks_{client_id}", use_container_width=True, on_click=toggle_banks)
-                            with c3:
-                                st.button(toggle_mail_label, key=f"btn_mail_{client_id}", use_container_width=True, on_click=toggle_mail)
-                            with c4:
-                                st.button(toggle_docs_label, key=f"btn_docs_{client_id}", use_container_width=True, on_click=toggle_docs)
+                        # --- DESKTOP: 4 buttons in one row ---
+                        st.markdown('<div class="actions-desktop">', unsafe_allow_html=True)
+                        d1, d2, d3, d4 = st.columns(4)
+                        with d1:
+                            st.button("✏️ Клиент", key=f"btn_edit_desktop_{client_id}", use_container_width=True, on_click=open_client)
+                        with d2:
+                            st.button(toggle_banks_label, key=f"btn_banks_desktop_{client_id}", use_container_width=True, on_click=toggle_banks)
+                        with d3:
+                            st.button(toggle_mail_label, key=f"btn_mail_desktop_{client_id}", use_container_width=True, on_click=toggle_mail)
+                        with d4:
+                            st.button(toggle_docs_label, key=f"btn_docs_desktop_{client_id}", use_container_width=True, on_click=toggle_docs)
+                        st.markdown('</div>', unsafe_allow_html=True)
 
-                        else:
-                            # ===== MOBILE: 2x2 =====
-                            r1c1, r1c2 = st.columns(2)
-                            with r1c1:
-                                st.button("✏️ Клиент", key=f"btn_edit_{client_id}", use_container_width=True, on_click=open_client)
-                            with r1c2:
-                                st.button(toggle_banks_label, key=f"btn_banks_{client_id}", use_container_width=True, on_click=toggle_banks)
+                        # --- MOBILE: 2x2 ---
+                        st.markdown('<div class="actions-mobile">', unsafe_allow_html=True)
 
-                            r2c1, r2c2 = st.columns(2)
-                            with r2c1:
-                                st.button(toggle_mail_label, key=f"btn_mail_{client_id}", use_container_width=True, on_click=toggle_mail)
-                            with r2c2:
-                                st.button(toggle_docs_label, key=f"btn_docs_{client_id}", use_container_width=True, on_click=toggle_docs)
+                        mr1c1, mr1c2 = st.columns(2, gap="small")
+                        with mr1c1:
+                            st.button("✏️ Клиент", key=f"btn_edit_mobile_{client_id}", use_container_width=True, on_click=open_client)
+                        with mr1c2:
+                            st.button(toggle_banks_label, key=f"btn_banks_mobile_{client_id}", use_container_width=True, on_click=toggle_banks)
+
+                        mr2c1, mr2c2 = st.columns(2, gap="small")
+                        with mr2c1:
+                            st.button(toggle_mail_label, key=f"btn_mail_mobile_{client_id}", use_container_width=True, on_click=toggle_mail)
+                        with mr2c2:
+                            st.button(toggle_docs_label, key=f"btn_docs_mobile_{client_id}", use_container_width=True, on_click=toggle_docs)
+
+                        st.markdown('</div>', unsafe_allow_html=True)
                         
                         # Row 3: File Uploader (Full Width)
                         with st.container():

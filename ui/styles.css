@@ -131,23 +131,38 @@
     }
 }
 
-/* ===== FIX: iPhone/мобилка — НЕ ДАВАТЬ columns сваливаться в 1 колонку ===== */
-@media (max-width: 768px) {
+/* ===== Actions: show desktop on >=769, show mobile on <=768 ===== */
+.actions-desktop {
+    display: block;
+}
 
-    /* Не даём горизонтальным блокам (st.columns) переноситься */
-    section[data-testid="stExpander"] [data-testid="stHorizontalBlock"] {
+.actions-mobile {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .actions-desktop {
+        display: none !important;
+    }
+
+    .actions-mobile {
+        display: block !important;
+    }
+}
+
+/* ===== Mobile 2x2 buttons (force equal width) ===== */
+@media (max-width: 768px) {
+    .actions-mobile [data-testid="stHorizontalBlock"] {
         flex-wrap: nowrap !important;
         gap: 8px !important;
     }
 
-    /* Даём колонкам сжиматься, иначе iPhone делает 1 колонку */
-    section[data-testid="stExpander"] [data-testid="column"] {
+    .actions-mobile [data-testid="column"] {
         flex: 1 1 0 !important;
         min-width: 0 !important;
     }
 
-    /* Кнопка занимает всю ширину колонки */
-    section[data-testid="stExpander"] [data-testid="stButton"] button {
+    .actions-mobile [data-testid="stButton"] button {
         width: 100% !important;
     }
 }
