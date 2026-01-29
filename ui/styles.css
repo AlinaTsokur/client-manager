@@ -130,3 +130,22 @@
         padding-top: 5rem !important;
     }
 }
+
+/* ===== FORCE 2x2 ACTION BUTTONS ON MOBILE (Desk page) ===== */
+@media (max-width: 768px) {
+
+    /* Внутри нашего якоря заставляем колонки НЕ сворачиваться в 1 */
+    [data-actions="desk"] [data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap !important;
+        gap: 8px !important;
+    }
+
+    [data-actions="desk"] [data-testid="column"] {
+        flex: 1 1 0 !important;
+        min-width: 0 !important;
+    }
+
+    [data-actions="desk"] button {
+        width: 100% !important;
+    }
+}

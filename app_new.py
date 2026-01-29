@@ -75,7 +75,8 @@ if qp_edit and (qp_page is None or qp_page == "➕ Новый"):
     st.session_state["nav_to"] = "➕ Новый"
 
 # If user switched away from "➕ Новый" — drop edit mode + URL param
-if qp_page and qp_page != "➕ Новый":
+# If user switched away from "➕ Новый" — drop edit mode + URL param
+if qp_page and qp_page != "➕ Новый" and st.session_state.get("nav_to") != "➕ Новый":
     st.session_state.pop("editing_client_id", None)
     st.query_params.pop("edit", None)
 
@@ -381,7 +382,9 @@ elif selected_page == "💻 Рабочий стол":
                         # --- Handlers (no CSS, no duplicates) ---
                         def open_client(cid=client_id):
                             st.session_state["editing_client_id"] = cid
+                            st.query_params["edit"] = cid
                             st.session_state["nav_to"] = "➕ Новый"
+                            st.rerun()
 
                         def toggle_banks(ek=edit_key, wk=write_key, dk=docs_key):
                             st.session_state[ek] = not st.session_state[ek]
@@ -403,6 +406,7 @@ elif selected_page == "💻 Рабочий стол":
 
                         # --- Render layout depending on is_mobile ---
                         if not is_mobile:
+                            # ===== DESKTOP: 4 buttons in one row =====
                             c1, c2, c3, c4 = st.columns(4)
                             with c1:
                                 st.button("✏️ Клиент", key=f"btn_edit_{client_id}", use_container_width=True, on_click=open_client)
@@ -412,7 +416,11 @@ elif selected_page == "💻 Рабочий стол":
                                 st.button(toggle_mail_label, key=f"btn_mail_{client_id}", use_container_width=True, on_click=toggle_mail)
                             with c4:
                                 st.button(toggle_docs_label, key=f"btn_docs_{client_id}", use_container_width=True, on_click=toggle_docs)
+
                         else:
+                            # ===== MOBILE: 2x2 =====
+                            st.markdown('<div data-actions="desk">', unsafe_allow_html=True)
+                            
                             r1c1, r1c2 = st.columns(2)
                             with r1c1:
                                 st.button("✏️ Клиент", key=f"btn_edit_{client_id}", use_container_width=True, on_click=open_client)
@@ -424,6 +432,8 @@ elif selected_page == "💻 Рабочий стол":
                                 st.button(toggle_mail_label, key=f"btn_mail_{client_id}", use_container_width=True, on_click=toggle_mail)
                             with r2c2:
                                 st.button(toggle_docs_label, key=f"btn_docs_{client_id}", use_container_width=True, on_click=toggle_docs)
+                            
+                            st.markdown('</div>', unsafe_allow_html=True)
                         
                         # Row 3: File Uploader (Full Width)
                         with st.container():
