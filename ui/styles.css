@@ -131,38 +131,30 @@
     }
 }
 
-/* ===== Actions: show desktop on >=769, show mobile on <=768 ===== */
-.actions-desktop {
-    display: block;
+/* ===== Actions: single block responsive via anchor ===== */
+
+/* Base: 4 in a row (desktop) */
+.actions-anchor+div [data-testid="stHorizontalBlock"] {
+    flex-wrap: nowrap !important;
+    gap: 8px !important;
 }
 
-.actions-mobile {
-    display: none;
+.actions-anchor+div [data-testid="column"] {
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
 }
 
+.actions-anchor+div [data-testid="stButton"] button {
+    width: 100% !important;
+}
+
+/* Mobile: 2x2 */
 @media (max-width: 768px) {
-    .actions-desktop {
-        display: none !important;
+    .actions-anchor+div [data-testid="stHorizontalBlock"] {
+        flex-wrap: wrap !important;
     }
 
-    .actions-mobile {
-        display: block !important;
-    }
-}
-
-/* ===== Mobile 2x2 buttons (force equal width) ===== */
-@media (max-width: 768px) {
-    .actions-mobile [data-testid="stHorizontalBlock"] {
-        flex-wrap: nowrap !important;
-        gap: 8px !important;
-    }
-
-    .actions-mobile [data-testid="column"] {
-        flex: 1 1 0 !important;
-        min-width: 0 !important;
-    }
-
-    .actions-mobile [data-testid="stButton"] button {
-        width: 100% !important;
+    .actions-anchor+div [data-testid="column"] {
+        flex: 1 1 calc(50% - 8px) !important;
     }
 }

@@ -50,13 +50,19 @@ def clear_cache():
 # --- Load CSS ---
 from pathlib import Path
 
+
+
 def load_css():
-    css_path = Path(__file__).parent / "ui" / "styles.css"
-    if css_path.exists():
-        st.markdown(f"<style>{css_path.read_text(encoding='utf-8')}</style>", unsafe_allow_html=True)
-    else:
-        st.warning(f"CSS file not found: {css_path}")
-    
+    try:
+        css_path = Path(__file__).resolve().parent / "ui" / "styles.css"
+        if css_path.exists():
+            st.markdown(f"<style>{css_path.read_text(encoding='utf-8')}</style>", unsafe_allow_html=True)
+            # st.toast(f"🎨 Styles loaded from {css_path.name}") # Debug
+        else:
+            st.error(f"❌ CSS file not found at: {css_path}")
+    except Exception as e:
+        st.error(f"❌ Error loading CSS: {e}")
+
     # Responsive Actions CSS
     # (Cleaned up: we now use Python-side rendering based on screen width, 
     # so no complex display:none logic is needed here)
@@ -392,35 +398,18 @@ elif selected_page == "💻 Рабочий стол":
                                 st.session_state[wk] = False
 
                         # --- Render layout depending on is_mobile ---
-                        # --- DESKTOP: 4 buttons in one row ---
-                        st.markdown('<div class="actions-desktop">', unsafe_allow_html=True)
-                        d1, d2, d3, d4 = st.columns(4)
-                        with d1:
-                            st.button("✏️ Клиент", key=f"btn_edit_desktop_{client_id}", use_container_width=True, on_click=open_client)
-                        with d2:
-                            st.button(toggle_banks_label, key=f"btn_banks_desktop_{client_id}", use_container_width=True, on_click=toggle_banks)
-                        with d3:
-                            st.button(toggle_mail_label, key=f"btn_mail_desktop_{client_id}", use_container_width=True, on_click=toggle_mail)
-                        with d4:
-                            st.button(toggle_docs_label, key=f"btn_docs_desktop_{client_id}", use_container_width=True, on_click=toggle_docs)
-                        st.markdown('</div>', unsafe_allow_html=True)
+                        # ---------- ACTIONS (ONE BLOCK, NO DUPLICATES) ----------
+                        st.markdown(f'<div class="actions-anchor" data-client="{client_id}"></div>', unsafe_allow_html=True)
 
-                        # --- MOBILE: 2x2 ---
-                        st.markdown('<div class="actions-mobile">', unsafe_allow_html=True)
-
-                        mr1c1, mr1c2 = st.columns(2, gap="small")
-                        with mr1c1:
-                            st.button("✏️ Клиент", key=f"btn_edit_mobile_{client_id}", use_container_width=True, on_click=open_client)
-                        with mr1c2:
-                            st.button(toggle_banks_label, key=f"btn_banks_mobile_{client_id}", use_container_width=True, on_click=toggle_banks)
-
-                        mr2c1, mr2c2 = st.columns(2, gap="small")
-                        with mr2c1:
-                            st.button(toggle_mail_label, key=f"btn_mail_mobile_{client_id}", use_container_width=True, on_click=toggle_mail)
-                        with mr2c2:
-                            st.button(toggle_docs_label, key=f"btn_docs_mobile_{client_id}", use_container_width=True, on_click=toggle_docs)
-
-                        st.markdown('</div>', unsafe_allow_html=True)
+                        a1, a2, a3, a4 = st.columns(4, gap="small")
+                        with a1:
+                            st.button("✏️ Клиент", key=f"btn_edit_{client_id}", use_container_width=True, on_click=open_client)
+                        with a2:
+                            st.button(toggle_banks_label, key=f"btn_banks_{client_id}", use_container_width=True, on_click=toggle_banks)
+                        with a3:
+                            st.button(toggle_mail_label, key=f"btn_mail_{client_id}", use_container_width=True, on_click=toggle_mail)
+                        with a4:
+                            st.button(toggle_docs_label, key=f"btn_docs_{client_id}", use_container_width=True, on_click=toggle_docs)
                         
                         # Row 3: File Uploader (Full Width)
                         with st.container():
