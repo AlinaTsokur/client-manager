@@ -118,9 +118,15 @@
         white-space: nowrap !important;
     }
 
+    /* Прозрачный хедер на мобилке */
+    header[data-testid="stHeader"] {
+        background: transparent !important;
+    }
+
     .block-container {
         padding-left: 1rem !important;
         padding-right: 1rem !important;
-        padding-top: 1rem !important;
+        /* Отступ сверху, чтобы хедер не перекрывал контент */
+        padding-top: 5rem !important;
     }
 }
