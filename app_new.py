@@ -384,7 +384,6 @@ elif selected_page == "💻 Рабочий стол":
                             st.session_state["editing_client_id"] = cid
                             st.query_params["edit"] = cid
                             st.session_state["nav_to"] = "➕ Новый"
-                            st.rerun()
 
                         def toggle_banks(ek=edit_key, wk=write_key, dk=docs_key):
                             st.session_state[ek] = not st.session_state[ek]
