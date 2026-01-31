@@ -26,6 +26,7 @@ from utils.helpers import parse_fio, calculate_age, transliterate, format_client
 from ui.components import formatted_number_input, formatted_phone_input, generate_yandex_mail_link
 from ui.client_form import render_client_form
 from ui.pages.banks import render_banks_page
+from ui.pages.calculator import render_expense_calculator
 
 # --- Initialize Services ---
 client_repo = ClientRepository()
@@ -73,7 +74,7 @@ load_css()
 
 
 # --- Navigation Logic ---
-pages = ["➕ Новый", "📋 Клиенты", "🏦 Банки", "💻 Рабочий стол", "⚙️ Сервисы"]
+pages = ["➕ Новый", "📋 Клиенты", "🏦 Банки", "💻 Рабочий стол", "🧮 Калькулятор", "⚙️ Сервисы"]
 
 # 1. APPLY PENDING NAV BEFORE WIDGETS (Two-step navigation)
 # --- Read URL params ---
@@ -347,7 +348,8 @@ elif selected_page == "💻 Рабочий стол":
                         
                         if interactions:
                             banks_text = ""
-                            for inter in interactions[-5:]:  # Show last 5 (newest)
+                            # Show all interactions (no limit)
+                            for inter in interactions:
                                 bank = inter.get("bank_name", "?")
                                 stage = inter.get("stage", "-")
                                 comment = str(inter.get("comment", ""))
@@ -566,6 +568,18 @@ elif selected_page == "💻 Рабочий стол":
                     if st.button("Вперед ➡️"):
                         st.session_state.desktop_page += 1
                         st.rerun()
+
+# ===================================================
+# PAGE: КАЛЬКУЛЯТОР
+# ===================================================
+elif selected_page == "🧮 Калькулятор":
+    # Pass all clients for search + banks list
+    all_clients = get_cached_clients()
+    all_banks = get_cached_banks()
+    
+    bank_names_list = [b["name"] for b in all_banks.to_dict("records")] if not all_banks.empty else None
+    
+    render_expense_calculator(clients_df=all_clients, banks=bank_names_list)
 
 # ============ СЕРВИСЫ ============
 elif selected_page == "⚙️ Сервисы":
