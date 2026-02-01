@@ -619,8 +619,6 @@ elif selected_page == "⚙️ Сервисы":
         "💼 Главное": [
             ("АВИТО", "https://www.avito.ru/profile/pro/items"),
             ("ЦИАН", "https://my.cian.ru/my-offers/"),
-            ("Яндекс Диск", "https://disk.yandex.ru/client/disk"),
-            ("Почта", "https://mail.yandex.ru/"),
             ("Оценка ЦИАН", "https://www.cian.ru/kalkulator-nedvizhimosti/"),
             ("Оценка ДомКлик", "https://price.domclick.ru/"),
 
