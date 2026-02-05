@@ -492,10 +492,93 @@ elif selected_page == "💻 Рабочий стол":
                             if d_sel_bank_name:
                                 d_sel_bank = next((b for b in banks_list if b["name"] == d_sel_bank_name), None)
                                 if d_sel_bank:
-                                    # Show bank's personal cabinet link if available
+                                    # Show bank's personal cabinet link with auto-copy functionality
                                     lk_link = d_sel_bank.get("lk_link", "")
                                     if lk_link:
-                                        st.markdown(f'🔐 [Личный кабинет {d_sel_bank_name}]({lk_link})')
+                                        # Prepare client data for bank autofill
+                                        surname, name, patronymic = parse_fio(client.get("fio", ""))
+                                        bank_autofill_data = {
+                                            "source": "sokol_bank",
+                                            "surname": clean_value(surname),
+                                            "name": clean_value(name),
+                                            "patronymic": clean_value(patronymic),
+                                            "gender": client.get("gender"),
+                                            "dob": str(client.get("dob")) if client.get("dob") else None,
+                                            "birth_place": clean_value(client.get("birth_place")),
+                                            "phone": clean_int_str(client.get("phone")),
+                                            "email": clean_value(client.get("email")),
+                                            "family_status": client.get("family_status"),
+                                            "passport_ser": clean_int_str(client.get("passport_ser")),
+                                            "passport_num": clean_int_str(client.get("passport_num")),
+                                            "passport_date": str(client.get("passport_date")) if client.get("passport_date") else None,
+                                            "passport_issued": clean_value(client.get("passport_issued")),
+                                            "passport_code": clean_int_str(client.get("kpp")),
+                                            "addr_index": clean_int_str(client.get("addr_index")),
+                                            "addr_region": clean_value(client.get("addr_region")),
+                                            "addr_city": clean_value(client.get("addr_city")),
+                                            "addr_street": clean_value(client.get("addr_street")),
+                                            "addr_house": clean_int_str(client.get("addr_house")),
+                                            "addr_korpus": clean_int_str(client.get("addr_korpus")),
+                                            "addr_structure": clean_int_str(client.get("addr_structure")),
+                                            "addr_flat": clean_int_str(client.get("addr_flat")),
+                                            "job_company": clean_value(client.get("job_company")),
+                                            "job_inn": clean_int_str(client.get("job_inn")),
+                                            "job_position": clean_value(client.get("job_pos")),
+                                            "job_phone": clean_int_str(client.get("job_phone")),
+                                            "job_income": client.get("job_income"),
+                                            "job_start_date": str(client.get("job_start_date")) if client.get("job_start_date") else None,
+                                        }
+                                        bank_json = json.dumps(bank_autofill_data, ensure_ascii=False)
+                                        
+                                        # Create unique button IDs
+                                        lk_btn_id = f"lkBtn_{client_id}_{d_sel_bank_name}".replace("-", "_").replace(" ", "_")
+                                        copy_btn_id = f"copyBtn_{client_id}_{d_sel_bank_name}".replace("-", "_").replace(" ", "_")
+                                        lk_json_escaped = json.dumps(bank_json, ensure_ascii=False)
+                                        
+                                        # JavaScript buttons: one copies+opens, one just copies
+                                        lk_btn_html = f"""
+                                        <div style="display:flex;gap:10px;align-items:center;">
+                                        <a id="{lk_btn_id}" href="{lk_link}" target="_blank" 
+                                           style="display:inline-block;padding:8px 16px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:white;text-decoration:none;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;">
+                                           🔐 Открыть ЛК
+                                        </a>
+                                        <button id="{copy_btn_id}" 
+                                           style="padding:8px 16px;background:#4a5568;color:white;border:none;border-radius:8px;font-size:14px;cursor:pointer;">
+                                           📋 Скопировать данные
+                                        </button>
+                                        </div>
+                                        <script>
+                                        (function() {{
+                                            const data = {lk_json_escaped};
+                                            
+                                            // Copy + Open button
+                                            const lkBtn = document.getElementById("{lk_btn_id}");
+                                            lkBtn.addEventListener("click", async (e) => {{
+                                                try {{
+                                                    await navigator.clipboard.writeText(data);
+                                                    console.log("[Сокол] Данные скопированы для банка");
+                                                }} catch (err) {{
+                                                    console.error("[Сокол] Ошибка копирования:", err);
+                                                }}
+                                            }});
+                                            
+                                            // Copy-only button
+                                            const copyBtn = document.getElementById("{copy_btn_id}");
+                                            copyBtn.addEventListener("click", async () => {{
+                                                try {{
+                                                    await navigator.clipboard.writeText(data);
+                                                    copyBtn.textContent = "✅ Скопировано!";
+                                                    setTimeout(() => copyBtn.textContent = "📋 Скопировать данные", 2000);
+                                                }} catch (err) {{
+                                                    copyBtn.textContent = "❌ Ошибка";
+                                                    console.error("[Сокол] Ошибка копирования:", err);
+                                                }}
+                                            }});
+                                        }})();
+                                        </script>
+                                        """
+                                        import streamlit.components.v1 as components
+                                        components.html(lk_btn_html, height=55)
                                     
                                     import os
                                     bank_folder = transliterate(d_sel_bank_name)
