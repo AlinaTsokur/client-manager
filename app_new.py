@@ -492,6 +492,11 @@ elif selected_page == "💻 Рабочий стол":
                             if d_sel_bank_name:
                                 d_sel_bank = next((b for b in banks_list if b["name"] == d_sel_bank_name), None)
                                 if d_sel_bank:
+                                    # Show bank's personal cabinet link if available
+                                    lk_link = d_sel_bank.get("lk_link", "")
+                                    if lk_link:
+                                        st.markdown(f'🔐 [Личный кабинет {d_sel_bank_name}]({lk_link})')
+                                    
                                     import os
                                     bank_folder = transliterate(d_sel_bank_name)
                                     tpl_dir = f"templates/{bank_folder}"
