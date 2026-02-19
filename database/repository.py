@@ -40,9 +40,22 @@ class ClientRepository:
     def save(self, data: dict) -> bool:
         """Insert or update a client."""
         try:
-            # Ensure bank_interactions is JSON string
-            if "bank_interactions" in data and isinstance(data["bank_interactions"], list):
-                data["bank_interactions"] = json.dumps(data["bank_interactions"], ensure_ascii=False)
+            # Clean NaN/NaT values that come from pandas DataFrames
+            for key in list(data.keys()):
+                v = data[key]
+                if v is None:
+                    continue
+                elif isinstance(v, (list, dict)):
+                    if key == "bank_interactions":
+                        data[key] = json.dumps(v, ensure_ascii=False)
+                elif isinstance(v, float):
+                    if pd.isna(v):
+                        data[key] = None
+                    elif v == int(v):
+                        # Convert 39.0 → 39 so Supabase integer columns accept it
+                        data[key] = int(v)
+                elif isinstance(v, str) and v in ("nan", "NaT", "None"):
+                    data[key] = None
             
             # Upsert (insert or update on conflict)
             self._client.table(self.TABLE_NAME).upsert(data).execute()

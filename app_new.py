@@ -464,6 +464,8 @@ elif selected_page == "💻 Рабочий стол":
                                     st.toast("✅ Сохранено!")
                                     st.session_state[edit_key] = False
                                     st.rerun()
+                                else:
+                                    st.error("❌ Ошибка сохранения банков. Проверьте консоль.")
                         
                         # --- Email Generation ---
                         if st.session_state[write_key]:
